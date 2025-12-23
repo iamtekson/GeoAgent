@@ -1,0 +1,35 @@
+<svg width="512" height="580" viewBox="0 0 512 580" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background (Transparent) -->
+  <rect width="512" height="580" fill="none" />
+  
+  <!-- Outer Green Frame (The Head/Helmet Shape) -->
+  <circle cx="256" cy="220" r="190" stroke="#84cc16" stroke-width="15" fill="none" />
+  
+  <!-- Main Globe Body (Deep Blue) -->
+  <circle cx="256" cy="220" r="165" fill="#1e3a5f" />
+  
+  <!-- Internal Grid (Thick White Lines) -->
+  <!-- Vertical Center Line -->
+  <rect x="248" y="55" width="16" height="330" fill="#ffffff" rx="8" />
+  <!-- Horizontal Center Line -->
+  <rect x="91" y="212" width="330" height="16" fill="#ffffff" rx="8" />
+  
+  <!-- Curve Lines (Longitude/Latitude) -->
+  <ellipse cx="256" cy="220" rx="75" ry="165" stroke="#ffffff" stroke-width="12" fill="none" />
+  <path d="M115 145 Q256 120 397 145" stroke="#ffffff" stroke-width="10" fill="none" stroke-linecap="round" />
+  <path d="M115 295 Q256 320 397 295" stroke="#ffffff" stroke-width="10" fill="none" stroke-linecap="round" />
+  
+  <!-- Robot Antennas -->
+  <!-- Left Antenna -->
+  <rect x="40" y="170" width="25" height="100" rx="12" fill="#84cc16" />
+  <path d="M52 170 V100" stroke="#84cc16" stroke-width="14" stroke-linecap="round" />
+  <circle cx="52" cy="85" r="18" fill="#84cc16" />
+  
+  <!-- Right Antenna -->
+  <rect x="447" y="170" width="25" height="100" rx="12" fill="#84cc16" />
+  <path d="M460 170 V100" stroke="#84cc16" stroke-width="14" stroke-linecap="round" />
+  <circle cx="460" cy="85" r="18" fill="#84cc16" />
+
+  <!-- Text: GeoAgent -->
+  <text x="256" y="520" font-family="Verdana, Geneva, sans-serif" font-size="76" font-weight="900" fill="#84cc16" text-anchor="middle" letter-spacing="-2">GeoAgent</text>
+</svg>
