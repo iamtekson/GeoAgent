@@ -4,43 +4,32 @@
 
 [general]
 name=GeoAgent
-qgisMinimumVersion=3.0
-description=Plugin for geospatial workflow
+qgisMinimumVersion=3.2
+description=Plugin for QGIS interaction using LLM. Enables geospatial analysis and data processing through natural language commands.
 version=0.1
 author=Tek Kshetri
 email=iamtekson@gmail.com
 
-about=Provide a brief description of the plugin and its purpose.
+about=A QGIS plugin that leverages Large Language Models (LLMs) to facilitate geospatial analysis and data processing through natural language commands. GeoAgent integrates with QGIS to provide users with an intuitive interface for executing complex geospatial tasks using conversational AI.
+license=MIT
 
-tracker=http://bugs
-repository=http://repo
-# End of mandatory metadata
-
-# Recommended items:
-
-hasProcessingProvider=no
-# Uncomment the following line and add your changelog:
-# changelog=
+tracker=https://github.com/iamtekson/GeoAgent/issues
+repository=https://github.com/iamtekson/GeoAgent
+changelog=
+    v0.1
+        - Initial release of GeoAgent plugin for QGIS.
+        - Added support for Ollama, ChatGPT and Gemini LLMs.
+        - Implemented dependency installation feature with user notifications.
+        - Implemented the layer read/write capabilities via LLM commands.
 
 # Tags are comma separated with spaces allowed
-tags=python
+tags=python, GeoAgent, GeoAgent for QGIS, Agent for QGIS 
 
-homepage=http://homepage
-category=Plugins
+homepage=https://github.com/iamtekson/GeoAgent
+category=Analysis
 icon=icon.png
-# experimental flag
 experimental=True
-
-# deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
-
-# Since QGIS 3.8, a comma separated list of plugins to be installed
-# (or upgraded) can be specified.
-# Check the documentation for more information.
-# plugin_dependencies=
-
-Category of the plugin: Raster, Vector, Database or Web
-# category=
 
 # If the plugin can run on QGIS Server.
 server=False
