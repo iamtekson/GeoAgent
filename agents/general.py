@@ -56,3 +56,16 @@ def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
     result = app.invoke(state, config={"configurable": {"thread_id": thread_id}})
     # result["messages"] is the full list; return the last AI message
     return result["messages"][-1]
+
+
+# invoke app async
+async def invoke_app_async(
+    app, thread_id: str, messages: List[BaseMessage]
+) -> AIMessage:
+    """Invoke the compiled app asynchronously and return the last AI message."""
+    state = {"messages": messages}
+    result = await app.invoke_async(
+        state, config={"configurable": {"thread_id": thread_id}}
+    )
+    # result["messages"] is the full list; return the last AI message
+    return result["messages"][-1]

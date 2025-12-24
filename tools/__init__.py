@@ -1,5 +1,5 @@
 from .geoprocessing import *
-from .data_io import *
+from .io import *
 from .commons import *
 
 
@@ -14,5 +14,12 @@ TOOLS = {
         get_layer_columns,
         zoom_to_layer,
         remove_layer,
+        # Geoprocessing - Geometric operations
+        buffer_layer,
+        clip_layer,
+        dissolve_layer,
+        # Geoprocessing - Filtering & Selection
+        select_by_attribute,
+        select_by_geometry,
     ]
 }

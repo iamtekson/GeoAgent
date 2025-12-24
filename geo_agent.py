@@ -368,14 +368,15 @@ class GeoAgent:
         """Run method that performs all the real work"""
         # Ensure dependencies before loading graph or message classes
         self._ensure_dependencies_installed()
-        
+
         # Initialize QGIS interface for tools
         try:
-            from .tools.data_io import set_qgis_interface
+            from .tools.io import set_qgis_interface
+
             set_qgis_interface(self.iface)
         except Exception as e:
             self._log_error("initialize_tools_interface", e)
-        
+
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
