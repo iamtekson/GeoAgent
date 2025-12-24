@@ -2,159 +2,70 @@
 """
 General mode agent for conversational GIS assistance.
 """
-from typing import List, Dict, Optional, Any
-from dataclasses import dataclass, field
-from ..llm.client import LLMClient
-from ..prompts.system import GENERAL_SYSTEM_PROMPT
+from typing import List
+
+from langgraph.graph import StateGraph, END
+from langgraph.types import RetryPolicy
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
+from ..tools import TOOLS
+
+from .states import AgentState
 
 
-@dataclass
-class ChatMessage:
-    """Represents a chat message."""
+def build_graph_app(llm) -> any:
+    """Build and compile a LangGraph app wired with tools and memory."""
 
-    role: str  # "user" or "assistant"
-    content: str
+    try:
+        bound_llm = llm.bind_tools(list(TOOLS.values()))
+    except Exception:
+        bound_llm = llm  # Fallback if bind_tools is not available (e.g., Ollama LLM- deepseek models)
 
+    def llm_node(state: AgentState) -> AgentState:
+        response = bound_llm.invoke(state["messages"])
+        return {"messages": state["messages"] + [response]}
 
-@dataclass
-class AgentState:
-    """State for the general mode agent."""
+    def tool_node(state: AgentState) -> AgentState:
+        last_msg = state["messages"][-1]
+        tool_messages = []
+        for call in getattr(last_msg, "tool_calls", []) or []:
+            tool_inst = TOOLS[call["name"]]
+            result = tool_inst.invoke(call["args"])
+            tool_messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        return {"messages": state["messages"] + tool_messages}
 
-    messages: List[ChatMessage] = field(default_factory=list)
-    current_query: str = ""
-    response: str = ""
-    error: Optional[str] = None
-    temperature: float = 0.7
-    max_tokens: Optional[int] = None
+    def should_use_tools(state: AgentState) -> str:
+        last_msg = state["messages"][-1]
+        if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+            return "tools"
+        return END
 
-    def to_message_dicts(self) -> List[Dict[str, str]]:
-        """Convert messages to format expected by LLM."""
-        result = [
-            {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
-        ]
-        for msg in self.messages:
-            result.append({"role": msg.role, "content": msg.content})
-        return result
+    graph = StateGraph(AgentState)
+    graph.add_node("llm", llm_node)
+    graph.add_node("tools", tool_node, retry_policy=RetryPolicy(max_attempts=2))
+    graph.set_entry_point("llm")
+    graph.add_conditional_edges("llm", should_use_tools, {"tools": "tools", END: END})
+    graph.add_edge("tools", "llm")
 
-    def add_message(self, role: str, content: str) -> None:
-        """Add a message to the history."""
-        self.messages.append(ChatMessage(role=role, content=content))
-
-    def get_history_summary(self, max_messages: int = 5) -> List[ChatMessage]:
-        """Get recent messages for context."""
-        return self.messages[-max_messages:]
-
-
-class GeneralModeAgent:
-    """Agent for general purpose conversation with geospatial context."""
-
-    def __init__(self, llm_client: LLMClient):
-        """
-        Initialize the general mode agent.
-
-        :param llm_client: LLM client instance
-        """
-        self.llm_client = llm_client
-        self.state = AgentState()
-
-    def process_query(
-        self, query: str, temperature: float = 0.7, max_tokens: Optional[int] = None
-    ) -> str:
-        """
-        Process a user query and return a response.
-
-        :param query: User query
-        :param temperature: Temperature for generation
-        :param max_tokens: Maximum tokens to generate
-        :return: Response from the LLM
-        """
-        try:
-            # Update state
-            self.state.current_query = query
-            self.state.temperature = temperature
-            self.state.max_tokens = max_tokens
-
-            # Add user message
-            self.state.add_message("user", query)
-
-            # Prepare messages for LLM
-            messages = self.state.to_message_dicts()
-
-            # Get response from LLM
-            response = self.llm_client.query(
-                messages, temperature=temperature, max_tokens=max_tokens
-            )
-
-            # Add assistant message
-            self.state.add_message("assistant", response)
-            self.state.response = response
-            self.state.error = None
-
-            return response
-
-        except Exception as e:
-            error_msg = f"Error processing query: {str(e)}"
-            self.state.error = error_msg
-            return error_msg
-
-    def clear_history(self) -> None:
-        """Clear chat history."""
-        self.state.messages.clear()
-        self.state.response = ""
-        self.state.error = None
-
-    def get_history(self) -> List[Dict[str, str]]:
-        """Get chat history as list of dicts."""
-        return [
-            {"role": msg.role, "content": msg.content} for msg in self.state.messages
-        ]
-
-    def get_recent_history(self, max_messages: int = 5) -> List[Dict[str, str]]:
-        """Get recent chat history."""
-        recent = self.state.get_history_summary(max_messages)
-        return [{"role": msg.role, "content": msg.content} for msg in recent]
+    return graph.compile(checkpointer=MemorySaver())
 
 
-class LangGraphGeneralAgent:
-    """LangGraph-based general mode agent (for future expansion)."""
+def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
+    """Invoke the compiled app and return the last AI message."""
+    state = {"messages": messages}
+    result = app.invoke(state, config={"configurable": {"thread_id": thread_id}})
+    # result["messages"] is the full list; return the last AI message
+    return result["messages"][-1]
 
-    def __init__(self, llm_client: LLMClient):
-        """
-        Initialize LangGraph agent.
 
-        :param llm_client: LLM client instance
-        """
-        self.llm_client = llm_client
-        self.state = AgentState()
-
-        # This is a placeholder for future LangGraph implementation
-        # When you need agentic features with tool use, we'll expand this
-
-    def _process_node(self, state: AgentState) -> AgentState:
-        """LangGraph node for processing queries."""
-        messages = state.to_message_dicts()
-        response = self.llm_client.query(
-            messages, temperature=state.temperature, max_tokens=state.max_tokens
-        )
-        state.add_message("assistant", response)
-        state.response = response
-        return state
-
-    def process_query(
-        self, query: str, temperature: float = 0.7, max_tokens: Optional[int] = None
-    ) -> str:
-        """Process query using LangGraph."""
-        self.state.current_query = query
-        self.state.temperature = temperature
-        self.state.max_tokens = max_tokens
-        self.state.add_message("user", query)
-
-        # Process
-        self.state = self._process_node(self.state)
-        return self.state.response
-
-    def clear_history(self) -> None:
-        """Clear chat history."""
-        self.state.messages.clear()
-        self.state.response = ""
-        self.state.error = None
+# invoke app async
+async def invoke_app_async(
+    app, thread_id: str, messages: List[BaseMessage]
+) -> AIMessage:
+    """Invoke the compiled app asynchronously and return the last AI message."""
+    state = {"messages": messages}
+    result = await app.invoke_async(
+        state, config={"configurable": {"thread_id": thread_id}}
+    )
+    # result["messages"] is the full list; return the last AI message
+    return result["messages"][-1]

@@ -23,9 +23,9 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy
+from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
 from qgis.PyQt.QtGui import QFont
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsMessageLog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -34,21 +34,17 @@ from .resources import *
 from .geo_agent_dialog import GeoAgentDialog
 
 # Import agent and LLM components
-from .config.settings import (
-    API_KEY_FILE,
-    SUPPORTED_MODELS,
-    DEFAULT_MODEL,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_MAX_TOKENS,
-)
-from .llm.client import create_client
-from .agents.general import GeneralModeAgent, LangGraphGeneralAgent
+from .config.settings import API_KEY_FILE, SUPPORTED_MODELS, DEFAULT_MODEL, DEBUG_MODE
+from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
+from .prompts.system import GENERAL_SYSTEM_PROMPT
+import importlib
+import subprocess
+import sys
+import re
 
 import os
 import os.path
-
-# TODO: Check for the required packages whether or not installed
-PACKAGE_INSTALLED = True
+import traceback
 
 
 class GeoAgent:
@@ -88,10 +84,174 @@ class GeoAgent:
         self.first_start = None
 
         # Agent and LLM components
-        self.agent = None
-        self.llm_client = None
+        self.llm = None
+        self.app = None
         self.current_model = DEFAULT_MODEL
         self.api_key = self._load_api_key()
+        self.thread_id = "geo-agent"
+        self._has_started_thread = False
+        self._last_temperature = None
+        self._error_log_path = os.path.join(self.plugin_dir, "geo_agent_error.log")
+
+    def _log_error(self, context: str, exc: Exception):
+        try:
+            details = traceback.format_exc()
+            # Write to plugin error log file
+            with open(self._error_log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{context}] {str(exc)}\n")
+                f.write(details + "\n\n")
+            # Also send to QGIS log panel
+            QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
+        except Exception:
+            pass
+
+    def _ensure_dependencies_installed(self):
+        """Ensure required Python packages are installed via pyproject.toml."""
+        pkg_to_import = {
+            "langgraph": "langgraph",
+            "langchain-core": "langchain_core",
+            "langchain-community": "langchain_community",
+            "langchain-openai": "langchain_openai",
+            "langchain-google-genai": "langchain_google_genai",
+            "langchain-ollama": "langchain_ollama",
+            "requests": "requests",
+        }
+
+        # Read dependencies from pyproject.toml
+        deps = []
+        pyproject_path = os.path.join(self.plugin_dir, "pyproject.toml")
+        try:
+            with open(pyproject_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            try:
+                import tomllib  # Python 3.11+
+
+                data = tomllib.loads(content)
+                deps = data.get("project", {}).get("dependencies", []) or []
+            except Exception:
+                m = re.search(r"dependencies\s*=\s*\[(.*?)\]", content, re.S)
+                if m:
+                    raw = m.group(1)
+                    for line in raw.splitlines():
+                        line = line.strip().strip(",")
+                        if not line:
+                            continue
+                        if line.startswith('"') and line.endswith('"'):
+                            deps.append(line[1:-1])
+        except Exception:
+            deps = []
+
+        # Normalize package names (strip version specifiers)
+        pkgs = []
+        for d in deps:
+            name = d.split(";")[0].split(" ")[0]
+            name = name.split(">=")[0].split("==")[0]
+            pkgs.append(name)
+
+        # Determine missing based on import availability
+        missing = []
+        for pkg in pkgs:
+            import_name = pkg_to_import.get(pkg)
+            if not import_name:
+                continue
+            try:
+                importlib.import_module(import_name)
+            except Exception:
+                missing.append(pkg)
+
+        if not missing:
+            return True
+
+        # Ask user to confirm installation
+        try:
+            pkg_list = "\n".join(missing)
+            reply = QMessageBox.question(
+                self.iface.mainWindow(),
+                "Install Dependencies",
+                f"The following packages are required:\n\n{pkg_list}\n\nInstall now?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return False
+        except Exception:
+            pass
+
+        # Inform user via message bar
+        try:
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                f"Installing missing dependencies: {' '.join(missing)}",
+                level=Qgis.Info,
+                duration=0,
+            )
+        except Exception:
+            pass
+
+        # Install missing packages
+        try:
+            py_exec = sys.executable
+            lower = py_exec.lower()
+            if lower.endswith("qgis-bin.exe") or lower.endswith("qgis-ltr-bin.exe"):
+                py_exec = os.path.join(os.path.dirname(py_exec), "python.exe")
+            elif lower.endswith("pythonw.exe"):
+                py_exec = os.path.join(os.path.dirname(py_exec), "python.exe")
+
+            # Progress dialog during installation
+            progress = None
+            try:
+                progress = QProgressDialog(
+                    "Installing dependencies...",
+                    None,
+                    0,
+                    len(missing),
+                    self.iface.mainWindow(),
+                )
+                progress.setWindowTitle("GeoAgent")
+                progress.setWindowModality(Qt.ApplicationModal)
+                progress.setAutoClose(True)
+                progress.setAutoReset(True)
+                progress.setMinimumDuration(0)
+            except Exception:
+                progress = None
+
+            for idx, pkg in enumerate(missing, start=1):
+                subprocess.run(
+                    [py_exec, "-m", "pip", "install", "--upgrade", pkg], check=True
+                )
+                try:
+                    if progress:
+                        progress.setValue(idx)
+                        QCoreApplication.processEvents()
+                except Exception:
+                    pass
+
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                "Dependencies installed successfully.",
+                level=Qgis.Success,
+                duration=3,
+            )
+            try:
+                if progress:
+                    progress.close()
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                f"Failed to install dependencies: {e}",
+                level=Qgis.Critical,
+                duration=6,
+            )
+
+    def _get_message_classes(self):
+        msgs_mod = importlib.import_module("langchain_core.messages")
+        return msgs_mod.SystemMessage, msgs_mod.HumanMessage
+
+    def _get_agents_general(self):
+        mod = importlib.import_module(".agents.general", package=__package__)
+        return mod.build_graph_app, mod.invoke_app
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -206,6 +366,16 @@ class GeoAgent:
 
     def run(self):
         """Run method that performs all the real work"""
+        # Ensure dependencies before loading graph or message classes
+        self._ensure_dependencies_installed()
+
+        # Initialize QGIS interface for tools
+        try:
+            from .tools.io import set_qgis_interface
+
+            set_qgis_interface(self.iface)
+        except Exception as e:
+            self._log_error("initialize_tools_interface", e)
 
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
@@ -315,20 +485,50 @@ class GeoAgent:
             # Display user question
             self._display_user_message(question)
 
-            # Initialize agent if needed or model changed
-            if self.agent is None or self.current_model != model_name:
-                self._initialize_agent(model_name)
+            # Initialize app if needed or model changed
+            if self.app is None or self.current_model != model_name:
+                self._initialize_agent(
+                    model_name, temperature=temperature, max_tokens=max_tokens
+                )
 
-            if self.agent is None:
-                raise RuntimeError("Failed to initialize LLM agent")
+            # Rebuild app if temperature changed
+            if (
+                self._last_temperature is None
+                or abs(self._last_temperature - temperature) > 1e-9
+            ):
+                # Recreate LLM and app to apply new temperature
+                self._initialize_agent(
+                    model_name, temperature=temperature, max_tokens=max_tokens
+                )
+                self._last_temperature = temperature
 
-            # Get response from agent
-            response = self.agent.process_query(
-                question, temperature=temperature, max_tokens=max_tokens
+            if self.app is None:
+                raise RuntimeError("LLM app is not initialized")
+
+            # Prepare messages
+            SystemMessage, HumanMessage = self._get_message_classes()
+
+            # On first turn, seed the thread with system prompt
+            if not self._has_started_thread:
+                # Initialize thread with system message
+                init_state = {
+                    "messages": [SystemMessage(content=GENERAL_SYSTEM_PROMPT)]
+                }
+                self.app.invoke(
+                    init_state, config={"configurable": {"thread_id": self.thread_id}}
+                )
+                self._has_started_thread = True
+
+            # Now invoke with just the new user message; graph will load history from checkpoint
+            msgs = [HumanMessage(content=question)]
+            _, invoke_app = self._get_agents_general()
+            ai_msg = invoke_app(self.app, thread_id=self.thread_id, messages=msgs)
+            response_text = (
+                ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
             )
 
             # Display response
-            self._display_ai_response(response)
+            self._display_ai_response(response_text)
 
             # Clear input and scroll to bottom
             self.dlg.question.setText("")
@@ -336,16 +536,31 @@ class GeoAgent:
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
+            self._log_error("send_message", e)
+            # Persist the error in the message bar until dismissed
             self.iface.messageBar().pushMessage(
-                "GeoAgent", error_msg, level=Qgis.Critical, duration=5
+                "GeoAgent", error_msg, level=Qgis.Critical, duration=0
             )
+            # Show a popup with a hint to the log location
+            try:
+                if DEBUG_MODE:
+                    self.showMessage(
+                        "GeoAgent Error",
+                        f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
+                        "OK",
+                        "Warning",
+                    )
+            except Exception:
+                pass
         finally:
             # Re-enable buttons
             self.dlg.send_chat.setEnabled(True)
             self.dlg.question.setEnabled(True)
 
-    def _initialize_agent(self, model_name: str) -> None:
-        """Initialize the LLM agent with the selected model."""
+    def _initialize_agent(
+        self, model_name: str, temperature: float = 0.7, max_tokens: int = None
+    ) -> None:
+        """Initialize the LangChain chat model and LangGraph app."""
         try:
             if model_name not in SUPPORTED_MODELS:
                 raise ValueError(f"Unsupported model: {model_name}")
@@ -362,8 +577,8 @@ class GeoAgent:
                 if not api_key:
                     raise ValueError(f"API key required for {model_name}")
 
-            # Create LLM client based on provider
-            client_kwargs = {}
+            # Create LLM based on provider
+            client_kwargs = {"temperature": temperature, "max_tokens": max_tokens}
             if provider == "ollama":
                 # Use UI-provided Ollama model name if specified; else default to llama3.2:3b
                 try:
@@ -396,94 +611,48 @@ class GeoAgent:
                 )
             elif provider == "google":
                 client_kwargs["model"] = model_config.get("default_model", "gemini-pro")
-
-            self.llm_client = create_client(provider, api_key=api_key, **client_kwargs)
-
-            # Validate connection
-            if not self.llm_client.validate_connection():
-                if provider == "ollama":
-                    # Check if model is missing and offer to pull it
-                    if (
-                        hasattr(self.llm_client, "_model_missing")
-                        and self.llm_client._model_missing
-                    ):
-                        model_str = getattr(self.llm_client, "model", "llama3.2:3b")
-                        reply = QMessageBox.question(
-                            self.iface.mainWindow(),
-                            "Ollama Model Not Found",
-                            f"The model '{model_str}' is not installed.\n\n"
-                            f"Would you like to pull it now? This may take a few minutes.",
-                            QMessageBox.Yes | QMessageBox.No,
+            # Validate Ollama availability/model
+            if provider == "ollama":
+                base_url = client_kwargs.get("base_url", "http://localhost:11434")
+                model_str = client_kwargs.get("model", "llama3.2:3b")
+                if not ollama_model_exists(base_url, model_str):
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Ollama Model Not Found",
+                        f"The model '{model_str}' is not installed.\n\n"
+                        f"Would you like to pull it now? This may take a few minutes.",
+                        QMessageBox.Yes | QMessageBox.No,
+                    )
+                    if reply == QMessageBox.Yes:
+                        self.iface.messageBar().pushMessage(
+                            "GeoAgent",
+                            f"Pulling model '{model_str}'. This may take a few minutes...",
+                            level=Qgis.Info,
+                            duration=0,
+                        )
+                        if not ollama_pull_model(base_url, model_str):
+                            raise RuntimeError(
+                                f"Failed to pull '{model_str}'. Check Ollama server."
+                            )
+                        self.iface.messageBar().pushMessage(
+                            "GeoAgent",
+                            f"Successfully pulled '{model_str}'. Initializing...",
+                            level=Qgis.Success,
+                            duration=3,
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"Model '{model_str}' not installed. To install manually, run: ollama pull {model_str}"
                         )
 
-                        if reply == QMessageBox.Yes:
-                            self.iface.messageBar().pushMessage(
-                                "GeoAgent",
-                                f"Pulling model '{model_str}'. This may take a few minutes...",
-                                level=Qgis.Info,
-                                duration=0,
-                            )
-                            try:
-                                if self.llm_client.pull_model():
-                                    self.iface.messageBar().pushMessage(
-                                        "GeoAgent",
-                                        f"Successfully pulled '{model_str}'. Initializing...",
-                                        level=Qgis.Success,
-                                        duration=3,
-                                    )
-                                    # Retry validation after pull
-                                    if self.llm_client.validate_connection():
-                                        self.agent = LangGraphGeneralAgent(
-                                            self.llm_client
-                                        )
-                                        self.current_model = model_name
-                                        self.iface.messageBar().pushMessage(
-                                            "GeoAgent",
-                                            f"Connected to {model_name}",
-                                            level=Qgis.Success,
-                                            duration=3,
-                                        )
-                                        return
-                                    else:
-                                        raise RuntimeError(
-                                            f"Model pulled but validation still failed."
-                                        )
-                                else:
-                                    raise RuntimeError(
-                                        f"Failed to pull '{model_str}'. Check Ollama logs."
-                                    )
-                            except Exception as pull_err:
-                                self.iface.messageBar().pushMessage(
-                                    "GeoAgent",
-                                    f"Error pulling model: {str(pull_err)}",
-                                    level=Qgis.Critical,
-                                    duration=5,
-                                )
-                                raise RuntimeError(
-                                    f"Model pull failed: {str(pull_err)}"
-                                )
-                        else:
-                            raise RuntimeError(
-                                f"Model '{model_str}' not installed. "
-                                f"To install manually, run: ollama pull {model_str}"
-                            )
-                    else:
-                        # Server not reachable
-                        hint = None
-                        if hasattr(self.llm_client, "explain_validate_failure"):
-                            try:
-                                hint = self.llm_client.explain_validate_failure()
-                            except Exception:
-                                hint = None
-                        if not hint:
-                            hint = f"Cannot connect to Ollama at {getattr(self.llm_client, 'base_url', 'http://localhost:11434')}"
-                        raise RuntimeError(hint)
-                else:
-                    raise RuntimeError(f"Cannot connect to {model_name}")
-
-            # Create agent (use LangGraph-based agent for general mode)
-            self.agent = LangGraphGeneralAgent(self.llm_client)
+            # Create LLM and compile LangGraph app
+            self.llm = create_llm(provider, api_key=api_key, **client_kwargs)
+            build_graph_app, _invoke_app = self._get_agents_general()
+            self.app = build_graph_app(self.llm)
             self.current_model = model_name
+            # Reset thread on re-init
+            self.thread_id = f"geo-agent:{model_name}"
+            self._has_started_thread = False
 
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
@@ -493,14 +662,24 @@ class GeoAgent:
             )
 
         except Exception as e:
+            self._log_error("_initialize_agent", e)
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Failed to initialize {model_name}: {str(e)}",
                 level=Qgis.Critical,
-                duration=5,
+                duration=0,
             )
-            self.agent = None
-            self.llm_client = None
+            try:
+                self.showMessage(
+                    "Initialization Error",
+                    f"Failed to initialize {model_name}: {str(e)}\n\nSee full log at:\n{self._error_log_path}",
+                    "OK",
+                    "Warning",
+                )
+            except Exception:
+                pass
+            self.llm = None
+            self.app = None
             raise
 
     def _display_user_message(self, message: str) -> None:
@@ -606,8 +785,11 @@ class GeoAgent:
         """Clear the chat history."""
         try:
             self.dlg.chatgpt_ans.clear()
-            if self.agent is not None:
-                self.agent.clear_history()
+            # Start a fresh thread id (clears memory)
+            import uuid
+
+            self.thread_id = f"geo-agent:{uuid.uuid4().hex}"
+            self._has_started_thread = False
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 "Chat cleared.",
