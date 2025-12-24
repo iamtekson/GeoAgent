@@ -34,7 +34,13 @@ from .resources import *
 from .geo_agent_dialog import GeoAgentDialog
 
 # Import agent and LLM components
-from .config.settings import API_KEY_FILE, SUPPORTED_MODELS, DEFAULT_MODEL, DEBUG_MODE
+from .config.settings import (
+    API_KEY_FILE,
+    SUPPORTED_MODELS,
+    DEFAULT_MODEL,
+    DEBUG_MODE,
+    QGIS_MESSAGE_DURATION,
+)
 from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 import importlib
@@ -229,7 +235,7 @@ class GeoAgent:
                 "GeoAgent",
                 "Dependencies installed successfully.",
                 level=Qgis.Success,
-                duration=3,
+                duration=QGIS_MESSAGE_DURATION,
             )
             try:
                 if progress:
@@ -242,7 +248,7 @@ class GeoAgent:
                 "GeoAgent",
                 f"Failed to install dependencies: {e}",
                 level=Qgis.Critical,
-                duration=6,
+                duration=QGIS_MESSAGE_DURATION,
             )
 
     def _get_message_classes(self):
@@ -537,9 +543,11 @@ class GeoAgent:
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self._log_error("send_message", e)
-            # Persist the error in the message bar until dismissed
             self.iface.messageBar().pushMessage(
-                "GeoAgent", error_msg, level=Qgis.Critical, duration=0
+                "GeoAgent",
+                error_msg,
+                level=Qgis.Critical,
+                duration=QGIS_MESSAGE_DURATION,
             )
             # Show a popup with a hint to the log location
             try:
@@ -628,7 +636,7 @@ class GeoAgent:
                             "GeoAgent",
                             f"Pulling model '{model_str}'. This may take a few minutes...",
                             level=Qgis.Info,
-                            duration=0,
+                            duration=QGIS_MESSAGE_DURATION,
                         )
                         if not ollama_pull_model(base_url, model_str):
                             raise RuntimeError(
@@ -638,7 +646,7 @@ class GeoAgent:
                             "GeoAgent",
                             f"Successfully pulled '{model_str}'. Initializing...",
                             level=Qgis.Success,
-                            duration=3,
+                            duration=QGIS_MESSAGE_DURATION,
                         )
                     else:
                         raise RuntimeError(
@@ -658,7 +666,7 @@ class GeoAgent:
                 "GeoAgent",
                 f"Connected to {model_name}",
                 level=Qgis.Success,
-                duration=3,
+                duration=QGIS_MESSAGE_DURATION,
             )
 
         except Exception as e:
@@ -667,7 +675,7 @@ class GeoAgent:
                 "GeoAgent",
                 f"Failed to initialize {model_name}: {str(e)}",
                 level=Qgis.Critical,
-                duration=0,
+                duration=QGIS_MESSAGE_DURATION,
             )
             try:
                 self.showMessage(
@@ -736,7 +744,10 @@ class GeoAgent:
             self.api_key = api_key
         except Exception as e:
             self.iface.messageBar().pushMessage(
-                "GeoAgent", f"Failed to save API key: {str(e)}", level=Qgis.Warning
+                "GeoAgent",
+                f"Failed to save API key: {str(e)}",
+                level=Qgis.Warning,
+                duration=QGIS_MESSAGE_DURATION,
             )
 
     def export_chat(self) -> None:
@@ -752,7 +763,7 @@ class GeoAgent:
                     "GeoAgent",
                     "Chat is empty. Nothing to export.",
                     level=Qgis.Info,
-                    duration=3,
+                    duration=QGIS_MESSAGE_DURATION,
                 )
                 return
 
@@ -771,14 +782,14 @@ class GeoAgent:
                     "GeoAgent",
                     f"Chat exported to {file_path}",
                     level=Qgis.Success,
-                    duration=3,
+                    duration=QGIS_MESSAGE_DURATION,
                 )
         except Exception as e:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Failed to export chat: {str(e)}",
                 level=Qgis.Critical,
-                duration=5,
+                duration=QGIS_MESSAGE_DURATION,
             )
 
     def clear_chat(self) -> None:
@@ -794,7 +805,7 @@ class GeoAgent:
                 "GeoAgent",
                 "Chat cleared.",
                 level=Qgis.Info,
-                duration=2,
+                duration=QGIS_MESSAGE_DURATION,
             )
         except Exception as e:
             self.iface.messageBar().pushMessage(

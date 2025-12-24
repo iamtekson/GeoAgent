@@ -47,3 +47,6 @@ MAX_ALLOWED_TOKENS = 10000
 
 # Chat history
 MAX_HISTORY_LENGTH = 10
+
+# Message display duration (in seconds)
+QGIS_MESSAGE_DURATION = 5
