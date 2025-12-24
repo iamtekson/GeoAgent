@@ -36,7 +36,11 @@ TOOLS = {t.name: t for t in [calc, now_utc]}
 
 def build_graph_app(llm) -> any:
     """Build and compile a LangGraph app wired with tools and memory."""
-    bound_llm = llm.bind_tools(list(TOOLS.values()))
+
+    try:
+        bound_llm = llm.bind_tools(list(TOOLS.values()))
+    except Exception:
+        bound_llm = llm  # Fallback if bind_tools is not available (e.g., Ollama LLM- deepseek models)
 
     def llm_node(state: AgentState) -> AgentState:
         response = bound_llm.invoke(state["messages"])
