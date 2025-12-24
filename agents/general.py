@@ -8,30 +8,9 @@ from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
-from langchain_core.tools import tool
+from ..tools import TOOLS
 
 from .states import AgentState
-
-
-# ---------- Tools ----------
-@tool
-def calc(expression: str) -> str:
-    """Evaluate a math expression."""
-    try:
-        return str(eval(expression, {"__builtins__": {}}))
-    except Exception as e:
-        return f"error: {e}"
-
-
-@tool
-def now_utc() -> str:
-    """Return current UTC time."""
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()
-
-
-TOOLS = {t.name: t for t in [calc, now_utc]}
 
 
 def build_graph_app(llm) -> any:
