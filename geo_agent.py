@@ -350,7 +350,7 @@ class GeoAgent:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ":/plugins/geo_agent/icon.png"
+        icon_path = os.path.join(self.plugin_dir, "icons", "icon.png")
         self.add_action(
             icon_path,
             text=self.tr("geoAgent"),
