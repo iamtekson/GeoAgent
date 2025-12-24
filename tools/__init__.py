@@ -1,6 +1,7 @@
 from .geoprocessing import *
 from .io import *
 from .commons import *
+from .filters import *
 
 
 TOOLS = {
@@ -18,7 +19,7 @@ TOOLS = {
         buffer_layer,
         clip_layer,
         dissolve_layer,
-        # Geoprocessing - Filtering & Selection
+        # Filtering & Selection
         select_by_attribute,
         select_by_geometry,
     ]
