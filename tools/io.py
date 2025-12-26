@@ -207,9 +207,8 @@ def zoom_to_layer(layer_name: str) -> str:
             return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
 
         # Zoom to layer extent using the map canvas
-        canvas = iface.mapCanvas()
-        canvas.setExtent(layer.extent())
-        canvas.refresh()
+        iface.setActiveLayer(layer)
+        iface.zoomToActiveLayer()
 
         return f"Success: Zoomed to layer '{layer_name}'."
 

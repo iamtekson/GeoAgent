@@ -245,9 +245,6 @@ def select_by_geometry(
 
 # Export tools for easy import
 __all__ = [
-    "buffer_layer",
-    "clip_layer",
-    "dissolve_layer",
     "select_by_attribute",
     "select_by_geometry",
 ]

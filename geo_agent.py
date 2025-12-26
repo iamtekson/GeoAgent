@@ -27,11 +27,8 @@ from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDial
 from qgis.PyQt.QtGui import QFont
 from qgis.core import Qgis, QgsMessageLog
 
-# Initialize Qt resources from file resources.py
-from .resources import *
-
 # Import the code for the dialog
-from .geo_agent_dialog import GeoAgentDialog
+from .dialogs.geo_agent_dialog import GeoAgentDialog
 
 # Import agent and LLM components
 from .config.settings import (
