@@ -252,9 +252,10 @@ class GeoAgent:
         msgs_mod = importlib.import_module("langchain_core.messages")
         return msgs_mod.SystemMessage, msgs_mod.HumanMessage
 
-    def _get_agents_general(self):
-        mod = importlib.import_module(".agents.general", package=__package__)
-        return mod.build_graph_app, mod.invoke_app
+    def _get_agents(self):
+        """Import agent functions from agents module."""
+        mod = importlib.import_module(".agents", package=__package__)
+        return mod.build_unified_graph, mod.invoke_app
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -488,11 +489,22 @@ class GeoAgent:
             # Display user question
             self._display_user_message(question)
 
-            # Initialize app if needed or model changed
-            if self.app is None or self.current_model != model_name:
+            # Get current mode from UI
+            current_mode = self.dlg.get_current_mode()
+
+            # Initialize app if needed, model changed, or mode changed
+            if (
+                self.app is None
+                or self.current_model != model_name
+                or getattr(self, "_current_mode", None) != current_mode
+            ):
                 self._initialize_agent(
-                    model_name, temperature=temperature, max_tokens=max_tokens
+                    model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    mode=current_mode,
                 )
+                self._current_mode = current_mode
 
             # Rebuild app if temperature changed
             if (
@@ -501,9 +513,13 @@ class GeoAgent:
             ):
                 # Recreate LLM and app to apply new temperature
                 self._initialize_agent(
-                    model_name, temperature=temperature, max_tokens=max_tokens
+                    model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    mode=current_mode,
                 )
                 self._last_temperature = temperature
+                self._current_mode = current_mode
 
             if self.app is None:
                 raise RuntimeError("LLM app is not initialized")
@@ -524,7 +540,7 @@ class GeoAgent:
 
             # Now invoke with just the new user message; graph will load history from checkpoint
             msgs = [HumanMessage(content=question)]
-            _, invoke_app = self._get_agents_general()
+            _, invoke_app = self._get_agents()
             ai_msg = invoke_app(self.app, thread_id=self.thread_id, messages=msgs)
             response_text = (
                 ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
@@ -563,9 +579,20 @@ class GeoAgent:
             self.dlg.question.setEnabled(True)
 
     def _initialize_agent(
-        self, model_name: str, temperature: float = 0.7, max_tokens: int = None
+        self,
+        model_name: str,
+        temperature: float = 0.7,
+        max_tokens: int = None,
+        mode: str = "general",
     ) -> None:
-        """Initialize the LangChain chat model and LangGraph app."""
+        """Initialize the LangChain chat model and LangGraph app.
+
+        Args:
+            model_name: The model to use
+            temperature: Temperature parameter for LLM
+            max_tokens: Maximum tokens for response
+            mode: Either 'general' or 'processing'
+        """
         try:
             if model_name not in SUPPORTED_MODELS:
                 raise ValueError(f"Unsupported model: {model_name}")
@@ -652,16 +679,19 @@ class GeoAgent:
 
             # Create LLM and compile LangGraph app
             self.llm = create_llm(provider, api_key=api_key, **client_kwargs)
-            build_graph_app, _invoke_app = self._get_agents_general()
-            self.app = build_graph_app(self.llm)
+            build_unified_graph, _ = self._get_agents()
+
+            # Use unified graph builder that routes based on mode
+            self.app = build_unified_graph(self.llm, mode=mode)
             self.current_model = model_name
             # Reset thread on re-init
-            self.thread_id = f"geo-agent:{model_name}"
+            self.thread_id = f"geo-agent:{model_name}:{mode}"
             self._has_started_thread = False
 
+            mode_display = "Processing" if mode == "processing" else "General"
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
-                f"Connected to {model_name}",
+                f"Connected to {model_name} ({mode_display} mode)",
                 level=Qgis.Success,
                 duration=QGIS_MESSAGE_DURATION,
             )
