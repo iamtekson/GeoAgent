@@ -80,6 +80,23 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         except Exception:
             pass
 
+        try:
+            # set llm_response text for getting started info
+            if hasattr(self, "llm_response"):
+                self.llm_response.setPlainText(
+                    "Welcome to GeoAgent!\n\n"
+                    "Select your LLM provider and configure settings on the left.\n"
+                    "If your provider is Ollama, ensure your Ollama server is running.\n\n"
+                    "   - Download Ollama: [https://ollama.com/download](https://ollama.com/download)\n"
+                    "   - Make sure Ollama is running by executing `ollama serve` in your terminal.\n\n"
+                    "Then choose a mode (default: General):\n"
+                    "   - Choose 'General' mode for conversational GIS assistance.\n"
+                    "   - Choose 'Processing' mode to execute geoprocessing tasks.\n\n"
+                    "Type your message above and click 'Send' to get started."
+                )
+        except Exception:
+            pass
+
     def get_current_mode(self) -> str:
         """Get the currently selected mode (general or processing)."""
         try:

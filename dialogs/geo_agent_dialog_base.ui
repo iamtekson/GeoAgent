@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>qchatgpt</class>
- <widget class="QDockWidget" name="qchatgpt">
+ <class>geoAgent</class>
+ <widget class="QDockWidget" name="geoAgent">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="tab">
        <attribute name="title">
@@ -30,7 +30,7 @@
           <item>
            <layout class="QHBoxLayout" name="layout_custom">
             <item>
-             <widget class="QTextEdit" name="chatgpt_edit">
+             <widget class="QTextEdit" name="llm_response_edit">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Ignored" vsizetype="Ignored">
                 <horstretch>0</horstretch>
@@ -47,7 +47,7 @@ p, li { white-space: pre-wrap; }
              </widget>
             </item>
             <item>
-             <widget class="QTextBrowser" name="chatgpt_ans">
+             <widget class="QTextBrowser" name="llm_response">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
                 <horstretch>0</horstretch>
