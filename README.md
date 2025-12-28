@@ -476,7 +476,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Documentation**: [GitHub Wiki](https://github.com/iamtekson/GeoAgent/wiki)
+- **Documentation**: [GitHub Readme](https://github.com/iamtekson/GeoAgent)
 - **Issues**: [GitHub Issues](https://github.com/iamtekson/GeoAgent/issues)
 - **Email**: iamtekson@gmail.com
 
