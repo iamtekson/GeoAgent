@@ -709,11 +709,37 @@ class GeoAgent:
                 if ollama_base_url:
                     client_kwargs["base_url"] = ollama_base_url
             elif provider == "openai":
-                client_kwargs["model"] = model_config.get(
-                    "default_model", "gpt-3.5-turbo"
+                # try to get the model from UI if available
+                try:
+                    openai_model_name = (
+                        self.dlg.openai_model_name.text().strip()
+                        if hasattr(self.dlg, "model_name")
+                        else ""
+                    )
+                except Exception:
+                    openai_model_name = ""
+
+                client_kwargs["model"] = (
+                    openai_model_name
+                    if openai_model_name
+                    else model_config.get("default_model", "gpt-4")
                 )
             elif provider == "google":
-                client_kwargs["model"] = model_config.get("default_model", "gemini-pro")
+                # try to get the model from UI if available
+                try:
+                    google_model_name = (
+                        self.dlg.google_model_name.text().strip()
+                        if hasattr(self.dlg, "model_name")
+                        else ""
+                    )
+                except Exception:
+                    google_model_name = ""
+                client_kwargs["model"] = (
+                    google_model_name
+                    if google_model_name
+                    else model_config.get("default_model", "gemini-pro")
+                )
+
             # Validate Ollama availability/model
             if provider == "ollama":
                 base_url = client_kwargs.get("base_url", "http://localhost:11434")
