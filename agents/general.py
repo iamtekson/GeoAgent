@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-General mode agent for conversational GIS assistance.
+General mode agent for conversational GIS assistance and mode routing.
 """
 from typing import List
 
@@ -14,12 +14,12 @@ from .states import AgentState
 
 
 def build_graph_app(llm) -> any:
-    """Build and compile a LangGraph app wired with tools and memory."""
+    """Build and compile a LangGraph app for general mode with tools and memory."""
 
     try:
         bound_llm = llm.bind_tools(list(TOOLS.values()))
     except Exception:
-        bound_llm = llm  # Fallback if bind_tools is not available (e.g., Ollama LLM- deepseek models)
+        bound_llm = llm
 
     def llm_node(state: AgentState) -> AgentState:
         response = bound_llm.invoke(state["messages"])
@@ -58,7 +58,25 @@ def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
     return result["messages"][-1]
 
 
-# invoke app async
+def build_unified_graph(llm, mode: str = "general") -> any:
+    """
+    Build a unified graph that routes to either general or processing mode.
+
+    Args:
+        llm: The language model instance
+        mode: Either 'general' or 'processing'
+
+    Returns:
+        Compiled LangGraph application
+    """
+    if mode == "processing":
+        # TODO: Implement processing graph build and return here
+        return build_graph_app(llm)
+
+    else:
+        return build_graph_app(llm)
+
+
 async def invoke_app_async(
     app, thread_id: str, messages: List[BaseMessage]
 ) -> AIMessage:
@@ -69,3 +87,11 @@ async def invoke_app_async(
     )
     # result["messages"] is the full list; return the last AI message
     return result["messages"][-1]
+
+
+__all__ = [
+    "build_graph_app",
+    "invoke_app",
+    "invoke_app_async",
+    "build_unified_graph",
+]

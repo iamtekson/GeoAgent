@@ -97,34 +97,14 @@ p, li { white-space: pre-wrap; }
              </widget>
             </item>
             <item>
-             <widget class="QRadioButton" name="agentic_mode">
+             <widget class="QRadioButton" name="processing_mode">
               <property name="text">
-               <string>Agentic</string>
+               <string>Processing</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="Line" name="line">
-              <property name="maximumSize">
-               <size>
-                <width>3</width>
-                <height>31</height>
-               </size>
-              </property>
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QCheckBox" name="chatgpt_edit_btn">
-              <property name="text">
-               <string>Modify AI</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="Line" name="line_7">
               <property name="maximumSize">
                <size>
                 <width>3</width>

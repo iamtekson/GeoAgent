@@ -76,3 +76,12 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 self.ollama_base_url.setText("http://localhost:11434")
         except Exception:
             pass
+
+    def get_current_mode(self) -> str:
+        """Get the currently selected mode (general or processing)."""
+        try:
+            if hasattr(self, "processing_mode") and self.processing_mode.isChecked():
+                return "processing"
+        except Exception:
+            pass
+        return "general"
