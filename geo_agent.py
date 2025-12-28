@@ -21,7 +21,13 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
+from qgis.PyQt.QtCore import (
+    QSettings,
+    QTranslator,
+    QCoreApplication,
+    Qt,
+    QThread,
+)
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
 from qgis.PyQt.QtGui import QFont
@@ -39,6 +45,8 @@ from .config.settings import (
     QGIS_MESSAGE_DURATION,
 )
 from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
+from .llm.worker import LLMWorker
+from langchain_core.messages import AIMessage
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 import importlib
 import subprocess
@@ -95,6 +103,8 @@ class GeoAgent:
         self._has_started_thread = False
         self._last_temperature = None
         self._error_log_path = os.path.join(self.plugin_dir, "geo_agent_error.log")
+        self._worker_thread: Optional[QThread] = None
+        self._is_processing = False
 
     def _log_error(self, context: str, exc: Exception):
         try:
@@ -255,7 +265,7 @@ class GeoAgent:
     def _get_agents(self):
         """Import agent functions from agents module."""
         mod = importlib.import_module(".agents", package=__package__)
-        return mod.build_unified_graph, mod.invoke_app
+        return mod.build_unified_graph, mod.invoke_app, mod.invoke_app_async
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -540,18 +550,22 @@ class GeoAgent:
 
             # Now invoke with just the new user message; graph will load history from checkpoint
             msgs = [HumanMessage(content=question)]
-            _, invoke_app = self._get_agents()
-            ai_msg = invoke_app(self.app, thread_id=self.thread_id, messages=msgs)
-            response_text = (
-                ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+            _, _, invoke_app_async = self._get_agents()
+
+            # Disable send button to prevent multiple submissions
+            self.dlg.send_chat.setEnabled(False)
+            self.dlg.send_chat.setText("Processing...")
+            self.dlg.question.setEnabled(False)
+            # self.dlg.send_chat.setText("Processing...")
+
+            # Create and start worker thread for non-blocking inference
+            self._worker_thread = LLMWorker(
+                self.app, self.thread_id, msgs, invoke_app_async
             )
-
-            # Display response
-            self._display_ai_response(response_text)
-
-            # Clear input and scroll to bottom
-            self.dlg.question.setText("")
-            self._scroll_to_bottom()
+            self._worker_thread.result_ready.connect(self._on_invoke_result)
+            self._worker_thread.error.connect(self._on_invoke_error)
+            self._worker_thread.finished.connect(self._on_invoke_finished)
+            self._worker_thread.start()
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
@@ -573,10 +587,67 @@ class GeoAgent:
                     )
             except Exception:
                 pass
-        finally:
-            # Re-enable buttons
+            # Re-enable buttons on error
             self.dlg.send_chat.setEnabled(True)
+            self.dlg.send_chat.setText("Send")
             self.dlg.question.setEnabled(True)
+
+    def _on_invoke_result(self, ai_msg: AIMessage):
+        """Callback when worker thread completes successfully."""
+        try:
+            response_text = (
+                ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+            )
+            # Display response
+            self._display_ai_response(response_text)
+            # Clear input and scroll to bottom
+            self.dlg.question.setText("")
+            self._scroll_to_bottom()
+        except Exception as e:
+            self._log_error("_on_invoke_result", e)
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                f"Error displaying response: {str(e)}",
+                level=Qgis.Critical,
+                duration=QGIS_MESSAGE_DURATION,
+            )
+
+    def _on_invoke_error(self, error_msg: str):
+        """Callback when worker thread encounters an error."""
+        self._log_error("LLM inference", Exception(error_msg))
+        self.iface.messageBar().pushMessage(
+            "GeoAgent",
+            f"LLM Error: {error_msg}",
+            level=Qgis.Critical,
+            duration=QGIS_MESSAGE_DURATION,
+        )
+        try:
+            if DEBUG_MODE:
+                self.showMessage(
+                    "GeoAgent Error",
+                    f"LLM Error: {error_msg}\n\nSee full log at:\n{self._error_log_path}",
+                    "OK",
+                    "Warning",
+                )
+        except Exception:
+            pass
+        # Re-enable buttons on error
+        self.dlg.send_chat.setEnabled(True)
+        self.dlg.send_chat.setText("Send")
+        self.dlg.question.setEnabled(True)
+
+    def _on_invoke_finished(self):
+        """Callback when worker thread finishes (success or error)."""
+        # Re-enable buttons
+        self.dlg.send_chat.setEnabled(True)
+        self.dlg.send_chat.setText("Send")
+        self.dlg.question.setEnabled(True)
+        self._is_processing = False
+        # Clean up thread reference
+        if self._worker_thread:
+            self._worker_thread.quit()
+            self._worker_thread.wait()
+            self._worker_thread = None
 
     def _initialize_agent(
         self,
@@ -679,7 +750,7 @@ class GeoAgent:
 
             # Create LLM and compile LangGraph app
             self.llm = create_llm(provider, api_key=api_key, **client_kwargs)
-            build_unified_graph, _ = self._get_agents()
+            build_unified_graph, _, _ = self._get_agents()
 
             # Use unified graph builder that routes based on mode
             self.app = build_unified_graph(self.llm, mode=mode)
@@ -743,9 +814,14 @@ class GeoAgent:
 
         # Append agent response
         formatted_response = response.replace("\n", "<br>")
-        self.dlg.chatgpt_ans.append(f"\n<b>Agent:</b> ")
+        self.dlg.chatgpt_ans.append("\n<b>Agent:</b> ")
         self.dlg.chatgpt_ans.insertHtml(formatted_response)
         self.dlg.chatgpt_ans.append("\n" + "." * 40)
+
+        # Re-enable buttons only after response is displayed
+        self.dlg.send_chat.setEnabled(True)
+        self.dlg.send_chat.setText("Send")
+        self.dlg.question.setEnabled(True)
 
     def _scroll_to_bottom(self) -> None:
         """Scroll chat area to the bottom."""

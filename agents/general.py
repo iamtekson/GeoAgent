@@ -80,11 +80,22 @@ def build_unified_graph(llm, mode: str = "general") -> any:
 async def invoke_app_async(
     app, thread_id: str, messages: List[BaseMessage]
 ) -> AIMessage:
-    """Invoke the compiled app asynchronously and return the last AI message."""
+    """
+    Invoke the compiled app asynchronously and return the last AI message.
+    
+    Uses app.ainvoke() if available (LangGraph 0.2.0+), otherwise falls back to invoke().
+    """
     state = {"messages": messages}
-    result = await app.invoke_async(
-        state, config={"configurable": {"thread_id": thread_id}}
-    )
+    try:
+        # Try async invoke first (LangGraph 0.2.0+)
+        result = await app.ainvoke(
+            state, config={"configurable": {"thread_id": thread_id}}
+        )
+    except (AttributeError, NotImplementedError):
+        # Fallback to sync invoke if async not available
+        result = app.invoke(
+            state, config={"configurable": {"thread_id": thread_id}}
+        )
     # result["messages"] is the full list; return the last AI message
     return result["messages"][-1]
 
