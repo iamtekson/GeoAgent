@@ -23,11 +23,11 @@ changelog=
         - Implemented the layer read/write capabilities via LLM commands.
 
 # Tags are comma separated with spaces allowed
-tags=python, GeoAgent, GeoAgent for QGIS, Agent for QGIS 
+tags=python, LLM, AI, geospatial analysis, natural language, Agent, QGIS, GeoAgent
 
 homepage=https://github.com/iamtekson/GeoAgent
 category=Analysis
-icon=icon.png
+icon=icons/icon.png
 experimental=True
 deprecated=False
 

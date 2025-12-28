@@ -217,3 +217,7 @@ __marimo__/
 
 # extra files
 _extras/
+
+# Plugin packaging
+geo_agent*.zip
+geo_agent-*.zip
