@@ -816,13 +816,13 @@ class GeoAgent:
 
     def _display_user_message(self, message: str) -> None:
         """Display user message in the chat area."""
-        self.dlg.chatgpt_ans.append("\n")
-        self.dlg.chatgpt_ans.append("." * 40)
-        self.dlg.chatgpt_ans.append(f"\n<b>User:</b> {message}")
+        self.dlg.llm_response.append("\n")
+        self.dlg.llm_response.append("." * 40)
+        self.dlg.llm_response.append(f"\n<b>User:</b> {message}")
         # Show a processing indicator immediately
-        self.dlg.chatgpt_ans.append("\n<i>Agent is processing…</i>")
+        self.dlg.llm_response.append("\n<i>Agent is processing…</i>")
         try:
-            self.dlg.chatgpt_ans.repaint()
+            self.dlg.llm_response.repaint()
         except Exception:
             pass
         self._scroll_to_bottom()
@@ -830,7 +830,7 @@ class GeoAgent:
     def _display_ai_response(self, response: str) -> None:
         """Display AI response in the chat area."""
         # Get cursor and remove the processing indicator line
-        cursor = self.dlg.chatgpt_ans.textCursor()
+        cursor = self.dlg.llm_response.textCursor()
         cursor.movePosition(cursor.End)
         # Move back to select the "Agent is processing..." line
         cursor.select(cursor.LineUnderCursor)
@@ -840,9 +840,9 @@ class GeoAgent:
 
         # Append agent response
         formatted_response = response.replace("\n", "<br>")
-        self.dlg.chatgpt_ans.append("\n<b>Agent:</b> ")
-        self.dlg.chatgpt_ans.insertHtml(formatted_response)
-        self.dlg.chatgpt_ans.append("\n" + "." * 40)
+        self.dlg.llm_response.append("\n<b>Agent:</b> ")
+        self.dlg.llm_response.insertHtml(formatted_response)
+        self.dlg.llm_response.append("\n" + "." * 40)
 
         # Re-enable buttons only after response is displayed
         self.dlg.send_chat.setEnabled(True)
@@ -851,7 +851,7 @@ class GeoAgent:
 
     def _scroll_to_bottom(self) -> None:
         """Scroll chat area to the bottom."""
-        scroll_bar = self.dlg.chatgpt_ans.verticalScrollBar()
+        scroll_bar = self.dlg.llm_response.verticalScrollBar()
         scroll_bar.setValue(scroll_bar.maximum())
 
     def _load_api_key(self) -> str:
@@ -886,7 +886,7 @@ class GeoAgent:
             import datetime
 
             # Get chat content
-            chat_text = self.dlg.chatgpt_ans.toPlainText()
+            chat_text = self.dlg.llm_response.toPlainText()
             if not chat_text.strip():
                 self.iface.messageBar().pushMessage(
                     "GeoAgent",
@@ -924,7 +924,7 @@ class GeoAgent:
     def clear_chat(self) -> None:
         """Clear the chat history."""
         try:
-            self.dlg.chatgpt_ans.clear()
+            self.dlg.llm_response.clear()
             # Start a fresh thread id (clears memory)
             import uuid
 
@@ -941,5 +941,5 @@ class GeoAgent:
                 "GeoAgent",
                 f"Failed to clear chat: {str(e)}",
                 level=Qgis.Critical,
-                duration=5,
+                duration=QGIS_MESSAGE_DURATION,
             )
