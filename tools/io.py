@@ -10,6 +10,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsRasterLayer,
     QgsMapLayer,
+    QgsCoordinateReferenceSystem,    
     QgsVectorFileWriter,
 )
 from qgis.gui import QgisInterface
@@ -60,15 +61,7 @@ def add_layer_to_qgis(
         # Auto-detect layer type if not provided
         if not layer_type:
             raster_extensions = [".tif", ".tiff", ".img", ".asc", ".nc", ".jpg", ".png"]
-            vector_extensions = [
-                ".shp",
-                ".geojson",
-                ".json",
-                ".gpkg",
-                ".kml",
-                ".gml",
-                ".csv",
-            ]
+            vector_extensions = [".shp", ".geojson", ".json", ".gpkg", ".kml", ".gml", ".csv"]
 
             ext = os.path.splitext(path_or_url.lower())[1]
             if ext in raster_extensions:
@@ -363,6 +356,114 @@ def remove_layer(layer_name: str) -> str:
         return f"Error removing layer: {str(e)}"
 
 
+@tool
+def new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
+    """
+    Create a new QGIS project and save it to a file.
+
+    Args:
+        path: File path to save the project (e.g., '/path/to/project.qgs' or '/path/to/project.qgz')
+        project_name: Optional project name/title. Uses the filename if nothing is provided.
+
+    Returns:
+        Success message with project path or error message.
+
+    Examples:
+        - new_qgis_project('/geoagent/my_project.qgs')
+        - new_qgis_project('/geoagent/test_project.qgz', 'QGIS Test Project')
+    """
+    try:
+        project = QgsProject.instance()
+        
+        # clear current project
+        project.clear()
+        
+        # set project title
+        if project_name:
+            project.setTitle(project_name)
+        else:
+            project.setTitle(os.path.splitext(os.path.basename(path))[0])
+        
+        # validate file extensions
+        valid_extensions = ['.qgs', '.qgz']
+        file_ext = os.path.splitext(path.lower())[1]
+        
+        if file_ext not in valid_extensions:
+            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
+        
+        # creat directory if needed
+        project_dir = os.path.dirname(path)
+        if project_dir and not os.path.exists(project_dir):
+            os.makedirs(project_dir)
+        
+        # save th project
+        project.setFileName(path)
+        success = project.write(path)
+        
+        if success:
+            return f"Success: Created new project '{project.title()}' at '{path}'"
+        else:
+            return f"Error: Failed to save project to '{path}'. Check file permissions and path validity."
+            
+    except Exception as e:
+        return f"Error creating project: {str(e)}"
+
+@tool
+def delete_existing_project(path: str) -> str:
+    """
+    Delete an existing QGIS project file from disk.
+
+    Args:
+        path: File path to the QGIS project file to delete (e.g., '/path/to/project.qgs' or '/path/to/project.qgz')
+
+    Returns:
+        Success message or error message.
+
+    Examples:
+        - delete_existing_project('/geoagent/old_project.qgs')
+        - delete_existing_project('/geoagent/temp_analysis.qgz')
+    """
+    try:
+        
+        if not os.path.exists(path):
+            return f"Error: Project file '{path}' does not exist."
+        
+        valid_extensions = ['.qgs', '.qgz']
+        file_ext = os.path.splitext(path.lower())[1]
+        
+        if file_ext not in valid_extensions:
+            return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
+        
+        iface = get_qgis_interface()
+        if not iface:
+            return "Error: QGIS interface not initialized. Cannot show confirmation dialog."
+
+        # show confirmation dialog
+        from qgis.PyQt.QtWidgets import QMessageBox
+
+        msg_box = QMessageBox(iface.mainWindow())
+        msg_box.setWindowTitle("Delete Project")
+        msg_box.setText(
+            f"Do you really want to delete the project file:\n\n'{path}'\n\nThis action cannot be undone."
+        )
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.setDefaultButton(QMessageBox.No)
+        msg_box.setIcon(QMessageBox.Warning)
+
+        # get user response
+        response = msg_box.exec_()
+
+        if response == QMessageBox.Yes:
+            # delete the project file
+            os.remove(path)
+            return f"Success: Project file '{path}' has been deleted."
+        else:
+            return f"Cancelled: Project file '{path}' was not deleted."
+            
+    except Exception as e:
+        return f"Error deleting project: {str(e)}"
+    
+
 # Export tools for easy import
 __all__ = [
     "add_layer_to_qgis",
@@ -371,4 +472,6 @@ __all__ = [
     "zoom_to_layer",
     "remove_layer",
     "set_qgis_interface",
+    "new_qgis_project",
+    "delete_existing_project",
 ]
