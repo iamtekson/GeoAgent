@@ -46,6 +46,7 @@ from .config.settings import (
 )
 from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
 from .llm.worker import LLMWorker
+from langchain_core.messages import AIMessage
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 import importlib
 import subprocess
