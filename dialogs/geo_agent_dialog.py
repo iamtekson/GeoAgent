@@ -47,6 +47,9 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         # Set default values for UI controls
         self._set_defaults()
 
+        # Setup connections for mode switching
+        self.setup_connections()
+
     def _set_defaults(self):
         """Set default values for dialog controls."""
         try:
@@ -85,3 +88,20 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         except Exception:
             pass
         return "general"
+
+    def setup_connections(self):
+        # Connect the combo box change signal to our switching function
+        self.model.currentIndexChanged.connect(self.update_ui_visibility)
+
+        # Set the initial state
+        self.update_ui_visibility()
+
+    def update_ui_visibility(self):
+        selection = self.model.currentText()
+
+        if selection == "Ollama":
+            # Index 1 might be your Ollama page
+            self.stackedWidget.setCurrentIndex(1)
+        else:
+            # Index 0 might be your standard API page
+            self.stackedWidget.setCurrentIndex(0)

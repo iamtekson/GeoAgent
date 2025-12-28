@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>915</width>
-    <height>425</height>
+    <height>343</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tab">
        <attribute name="title">
@@ -204,7 +204,7 @@ p, li { white-space: pre-wrap; }
 &lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
 p, li { white-space: pre-wrap; }
 &lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'MS Shell Dlg 2'; font-size:8pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Model &lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Provider: &lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="openExternalLinks">
                 <bool>true</bool>
@@ -354,9 +354,30 @@ p, li { white-space: pre-wrap; }
             </layout>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_5">
-             <item>
+            <widget class="QStackedWidget" name="stackedWidget">
+             <property name="currentIndex">
+              <number>0</number>
+             </property>
+             <widget class="QWidget" name="page">
+              <widget class="QgsPasswordLineEdit" name="custom_apikey">
+               <property name="geometry">
+                <rect>
+                 <x>77</x>
+                 <y>40</y>
+                 <width>371</width>
+                 <height>20</height>
+                </rect>
+               </property>
+              </widget>
               <widget class="QLabel" name="label_2">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>40</y>
+                 <width>42</width>
+                 <height>20</height>
+                </rect>
+               </property>
                <property name="toolTip">
                 <string>If you want, you can use your API key.</string>
                </property>
@@ -374,72 +395,90 @@ p, li { white-space: pre-wrap; }
                 <bool>false</bool>
                </property>
               </widget>
-             </item>
-             <item>
-              <widget class="QgsPasswordLineEdit" name="custom_apikey"/>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_2">
+              <widget class="QLineEdit" name="model_name">
+               <property name="geometry">
+                <rect>
+                 <x>80</x>
+                 <y>10</y>
+                 <width>361</width>
+                 <height>20</height>
+                </rect>
+               </property>
+              </widget>
+              <widget class="QLabel" name="label_8">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>10</y>
+                 <width>71</width>
+                 <height>16</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Model Name:</string>
+               </property>
+              </widget>
+              <widget class="Line" name="line_3">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>0</y>
+                 <width>855</width>
+                 <height>3</height>
+                </rect>
+               </property>
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="Line" name="line_2">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_base_url">
-             <item>
-              <widget class="QLabel" name="label_4">
-               <property name="text">
-                <string>Ollama Base URL (Optional): </string>
-               </property>
               </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="ollama_base_url">
+             </widget>
+             <widget class="QWidget" name="page_2">
+              <widget class="QLineEdit" name="ollama_model_name">
+               <property name="geometry">
+                <rect>
+                 <x>110</x>
+                 <y>40</y>
+                 <width>401</width>
+                 <height>19</height>
+                </rect>
+               </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
+               <property name="layoutDirection">
+                <enum>Qt::LeftToRight</enum>
+               </property>
               </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_7">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
+              <widget class="QLabel" name="label_4">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>10</y>
+                 <width>143</width>
                  <height>20</height>
-                </size>
+                </rect>
                </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_model_name">
-             <item>
+               <property name="text">
+                <string>Ollama Base URL: </string>
+               </property>
+               <property name="buddy">
+                <cstring>label_4</cstring>
+               </property>
+              </widget>
               <widget class="QLabel" name="label_3">
                <property name="enabled">
                 <bool>true</bool>
+               </property>
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>40</y>
+                 <width>157</width>
+                 <height>20</height>
+                </rect>
                </property>
                <property name="mouseTracking">
                 <bool>true</bool>
@@ -448,40 +487,43 @@ p, li { white-space: pre-wrap; }
                 <enum>Qt::LeftToRight</enum>
                </property>
                <property name="text">
-                <string>Ollama Model Name (Optional): </string>
+                <string>Ollama Model Name: </string>
                </property>
                <property name="wordWrap">
                 <bool>false</bool>
                </property>
               </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="ollama_model_name">
+              <widget class="QLineEdit" name="ollama_base_url">
+               <property name="geometry">
+                <rect>
+                 <x>110</x>
+                 <y>10</y>
+                 <width>401</width>
+                 <height>19</height>
+                </rect>
+               </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="layoutDirection">
-                <enum>Qt::LeftToRight</enum>
-               </property>
               </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_8">
+              <widget class="Line" name="line_2">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>0</y>
+                 <width>855</width>
+                 <height>3</height>
+                </rect>
+               </property>
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
+              </widget>
+             </widget>
+            </widget>
            </item>
            <item>
             <spacer name="verticalSpacer">
