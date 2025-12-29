@@ -22,7 +22,13 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    BaseMessage,
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from ..tools import (
     list_processing_algorithms,
@@ -30,6 +36,7 @@ from ..tools import (
     get_algorithm_parameters,
     execute_processing,
     list_qgis_layers,
+    TOOLS,
 )
 from ..prompts.system import (
     PROCESSING_ROUTING_PROMPT,
@@ -572,14 +579,26 @@ def build_processing_graph(llm) -> any:
             # if the parameters still missing some required fields, try to add those with default values
             for param in metadata.get("parameters", []):
                 _logger.debug(f"Checking parameter: {param['name']}")
-                if not param.get("optional") and param["name"] not in parameters:
-                    _logger.debug(f"Parameter {param['name']} is required but missing.")
-                    default_value = param.get("default")
+
+                name = param["name"]
+                current_val = parameters.get(name)
+                default_value = param.get("default")
+
+                # Case 1: Key exists but is None OR Case 2: Required key is missing entirely
+                if (name in parameters and current_val is None) or (
+                    not param.get("optional") and name not in parameters
+                ):
                     if default_value is not None:
-                        parameters[param["name"]] = default_value
+                        parameters[name] = default_value
                         _logger.debug(
-                            f"Added missing required parameter {param['name']} with default value {default_value}"
+                            f"Assigned default value {default_value} to parameter {name}"
                         )
+                    else:
+                        # Optional: Handle cases where a mandatory param is missing but no default exists
+                        if not param.get("optional"):
+                            _logger.debug(
+                                f"Required parameter {name} is missing and has no default!"
+                            )
 
             if notes:
                 _logger.debug(f"Notes: {notes}")
@@ -688,34 +707,71 @@ def build_processing_graph(llm) -> any:
     # Summarize results and return to user
     # ─────────────────────────────────────────────────────────────────────────────
     def finalize_node(state: ProcessingState) -> ProcessingState:
-        """Summarize the processing result and add final message."""
+        """Prepare a summary prompt and let the LLM generate the final message."""
         _logger.info("=" * 80)
         _logger.info("NODE: finalize_node START")
+        algo = state.get("selected_algorithm")
+        params = state.get("gathered_parameters", {})
+        result = state.get("execution_result")
+        err = state.get("error_message")
 
-        if state.get("execution_result"):
-            result = state["execution_result"]
-            summary = (
-                f"Successfully executed {result.get('algorithm', 'algorithm')}.\n"
-                f"with parameters: {state.get('gathered_parameters', {})}\n"
-                f"Output: {result}"
+        # Build a compact, structured context for the LLM
+        context_payload = {
+            "algorithm": algo,
+            "parameters": params,
+            "result": result,
+            "error": err,
+        }
+
+        system = SystemMessage(
+            content=(
+                "You are GeoAgent. Write a clear, concise user-facing summary of this run. "
+                "If there was an error, explain it and suggest the next step. Otherwise include: "
+                "- Algorithm friendly name/id\n- Key parameters with human-friendly units\n- Where outputs were created/loaded. "
+                "Keep under 6 lines. Do not call any tools. Do not ask follow-up questions."
             )
-            _logger.info(f"Finalization: Execution successful")
-        elif state.get("error_message"):
-            summary = f"Error: {state['error_message']}"
-            _logger.info(f"Finalization: Error encountered - {state['error_message']}")
-        else:
-            summary = "Processing completed (no result captured)."
-            _logger.info(f"Finalization: No result captured")
+        )
+        human = HumanMessage(
+            content=(
+                "Here is the structured context of the run (JSON):\n" + json.dumps(context_payload, default=str)
+            )
+        )
 
-        _logger.debug(f"Final summary: {summary}")
-        _logger.info(f"NODE: finalize_node END")
+        new_messages = state.get("messages", []) + [system, human]
+
+        _logger.info("NODE: finalize_node END -> handing off to LLM for summary")
         _logger.info("=" * 80)
 
         return {
-            "messages": state.get("messages", []) + [AIMessage(content=summary)],
-            "execution_result": state.get("execution_result"),
-            "error_message": state.get("error_message"),
+            "messages": new_messages,
+            "execution_result": result,
+            "error_message": err,
+            "selected_algorithm": algo,
+            "gathered_parameters": params,
         }
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Node 8: tools
+    # ────────────────────────────────────────────────────────────────────────────
+    def tool_node(state: ProcessingState) -> ProcessingState:
+        last_msg = state["messages"][-1]
+        tool_messages = []
+        for call in getattr(last_msg, "tool_calls", []) or []:
+            tool_inst = TOOLS[call["name"]]
+            result = tool_inst.invoke(call["args"])
+            tool_messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        return {"messages": state["messages"] + tool_messages}
+
+    def llm_node(state: ProcessingState) -> ProcessingState:
+
+        # connect tools to llm
+        try:
+            bound_llm = llm.bind_tools(list(TOOLS.values()))
+        except Exception:
+            bound_llm = llm
+
+        response = bound_llm.invoke(state["messages"])
+        return {"messages": state["messages"] + [response]}
 
     # ─────────────────────────────────────────────────────────────────────────────
     # Conditional edges to route based on task type
@@ -724,6 +780,13 @@ def build_processing_graph(llm) -> any:
         """Decide whether to continue processing or end."""
         if state.get("is_processing_task") and not state.get("error_message"):
             return "continue"
+        return "end"
+
+    def should_use_tools(state: ProcessingState) -> str:
+        """Route LLM output: run tools if requested, otherwise end."""
+        last_msg = state["messages"][-1]
+        if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+            return "tools"
         return "end"
 
     # ─────────────────────────────────────────────────────────────────────────────
@@ -738,13 +801,21 @@ def build_processing_graph(llm) -> any:
     graph.add_node("gather_parameters", gather_parameters_node)
     graph.add_node("execute", execute_node, retry_policy=RetryPolicy(max_attempts=2))
     graph.add_node("finalize", finalize_node)
+    graph.add_node("llm", llm_node)
+    graph.add_node("tools", tool_node)
 
     # Edges: route → conditional
     graph.set_entry_point("route")
     graph.add_conditional_edges(
         "route",
         should_continue_processing,
-        {"continue": "discover_algorithms", "end": "finalize"},
+        {"continue": "discover_algorithms", "end": "llm"},
+    )
+
+    graph.add_conditional_edges(
+        "llm",
+        should_use_tools,
+        {"tools": "tools", "end": END},
     )
 
     # Linear chain for processing path
@@ -753,10 +824,11 @@ def build_processing_graph(llm) -> any:
     graph.add_edge("inspect_parameters", "gather_parameters")
     graph.add_edge("gather_parameters", "execute")
     graph.add_edge("execute", "finalize")
+    graph.add_edge("finalize", "llm")
+    graph.add_edge("tools", "llm")
 
     # End
-    graph.add_edge("finalize", END)
-
+    graph.add_edge("llm", END)
     return graph.compile(checkpointer=MemorySaver())
 
 
