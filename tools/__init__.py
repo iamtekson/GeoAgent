@@ -13,7 +13,12 @@ from .filters import (
     select_by_geometry,
 )
 
-from .geoprocessing import execute_processing
+from .geoprocessing import (
+    execute_processing,
+    list_processing_algorithms,
+    get_algorithm_parameters,
+    find_processing_algorithm,
+)
 
 # Aggregate all tools for easy import
 TOOLS = {
@@ -33,6 +38,9 @@ TOOLS = {
         select_by_attribute,
         select_by_geometry,
         # Geoprocessing
-        execute_processing,
+        # execute_processing,
+        # list_processing_algorithms,
+        # get_algorithm_parameters,
+        # find_processing_algorithm,
     ]
 }
