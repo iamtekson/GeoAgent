@@ -33,5 +33,4 @@ def classFactory(iface):  # pylint: disable=invalid-name
     """
     #
     from .geo_agent import GeoAgent
-
     return GeoAgent(iface)

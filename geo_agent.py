@@ -818,7 +818,7 @@ class GeoAgent:
         """Display user message in the chat area."""
         self.dlg.llm_response.append("\n")
         self.dlg.llm_response.append("." * 40)
-        self.dlg.llm_response.append(f"\n<b>user:</b> {message}")
+        self.dlg.llm_response.append(f"\n<b>User:</b> {message}")
         # Show a processing indicator immediately
         self.dlg.llm_response.append("\n<i>Agent is processing…</i>")
         try:

@@ -4,6 +4,8 @@ from .io import (
     get_layer_columns,
     zoom_to_layer,
     remove_layer,
+    new_qgis_project,
+    delete_existing_project
 )
 from .commons import now_utc
 from .filters import (
@@ -25,6 +27,8 @@ TOOLS = {
         get_layer_columns,
         zoom_to_layer,
         remove_layer,
+        new_qgis_project,
+        delete_existing_project,
         # Filtering & Selection
         select_by_attribute,
         select_by_geometry,
