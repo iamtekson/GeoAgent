@@ -2,60 +2,57 @@
 """
 State definitions for the GeoAgent LangGraph application.
 """
-from typing import Annotated, Sequence, Optional, Dict, Any, Literal, List
+from typing import Annotated, Sequence, Optional, Dict, Any, List
 from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
-class QGISLayerState(TypedDict):
-    """
-    State representing a QGIS layer.
-    Includes layer name and optional metadata.
-    """
+class RouteState(TypedDict, total=False):
+    """Minimal state needed during routing."""
 
-    layer_name: str  # Name of the QGIS layer
-    layer_id: Optional[str]  # Unique identifier for the layer (if available)
-    columns: Optional[List[str]]  # List of attribute columns in the layer
-    metadata: Optional[Dict[str, Any]]  # Additional metadata about the layer
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    user_query: str
+    is_processing_task: bool
+    error_message: Optional[str]
 
 
-class layerListState(TypedDict):
-    """
-    State representing a list of QGIS layers.
-    Contains a list of QGISLayerState items.
-    """
-
-    layers: List[QGISLayerState]  # List of QGIS layers
-
-
-class RouteState(TypedDict):
-    """
-    State for routing between general and processing modes.
-    Inherits messages; adds a mode field to indicate the current mode.
-    """
-
-    is_processing_task: Literal[True, False]
-
-
-class AlgorithmSelectionState(RouteState):
-    """
-    State for algorithm selection step in processing workflows.
-    Inherits messages; adds algorithm candidates and selected algorithm.
-    """
+class DiscoveryState(RouteState, total=False):
+    """State after algorithm discovery."""
 
     algorithm_candidates: Optional[list]
-    selected_algorithm: Optional[str]  # The chosen algorithm id (e.g., 'native:buffer')
 
 
-class ParameterGatheringState(RouteState):
-    """
-    State for parameter gathering step in processing workflows.
-    Inherits messages; adds selected algorithm and gathered parameters.
-    """
+class SelectionState(DiscoveryState, total=False):
+    """State after algorithm selection."""
 
-    selected_algorithm: str  # The chosen algorithm id (e.g., 'native:buffer')
+    selected_algorithm: Optional[str]
+
+
+class ParameterState(SelectionState, total=False):
+    """State after parameter inspection/gathering."""
+
+    algorithm_metadata: Optional[Dict[str, Any]]
     gathered_parameters: Optional[Dict[str, Any]]
+
+
+class ExecutionState(ParameterState, total=False):
+    """State after execution."""
+
+    execution_result: Optional[Dict[str, Any]]
+
+
+class SelectedAlgorithmState(TypedDict, total=False):
+    algorithm_id: str
+    algorithm_name: str
+    reasoning: str
+    confidence: float
+
+
+class GatheredParametersState(TypedDict, total=False):
+    parameters: Dict[str, Any]
+    inferred_fields: List[str]
+    notes: str
 
 
 class ProcessingState(TypedDict, total=False):
@@ -92,3 +89,16 @@ class AgentState(TypedDict):
     """
 
     messages: Annotated[Sequence[BaseMessage], add_messages]
+
+
+__all__ = [
+    "RouteState",
+    "DiscoveryState",
+    "SelectionState",
+    "ParameterState",
+    "ExecutionState",
+    "SelectedAlgorithmState",
+    "GatheredParametersState",
+    "ProcessingState",
+    "AgentState",
+]

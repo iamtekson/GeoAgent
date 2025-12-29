@@ -14,10 +14,8 @@ Workflow:
 import json
 import logging
 import os
-import re
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
@@ -31,7 +29,6 @@ from langchain_core.messages import (
 )
 
 from ..tools import (
-    list_processing_algorithms,
     find_processing_algorithm,
     get_algorithm_parameters,
     execute_processing,
@@ -43,39 +40,16 @@ from ..prompts.system import (
     PROCESSING_ALGORITHM_SELECTION_PROMPT,
     PROCESSING_PARAMETER_GATHERING_PROMPT,
 )
-from .states import ProcessingState
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Structured Output Models
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class SelectedAlgorithm(BaseModel):
-    """Structured output for algorithm selection."""
-
-    algorithm_id: str = Field(description="The algorithm ID (e.g., 'native:buffer')")
-    algorithm_name: str = Field(description="The human-readable algorithm name")
-    reasoning: str = Field(
-        description="Why this algorithm was selected for the user's task"
-    )
-    confidence: float = Field(
-        description="Confidence score (0.0-1.0) for this selection", ge=0.0, le=1.0
-    )
-
-
-class GatheredParameters(BaseModel):
-    """Structured output for parameter gathering."""
-
-    parameters: Dict[str, Any] = Field(
-        description="Dictionary of algorithm parameters with their values"
-    )
-    inferred_fields: List[str] = Field(
-        description="List of parameter names that were inferred rather than explicitly stated"
-    )
-    notes: str = Field(
-        description="Any notes or assumptions about parameter extraction"
-    )
+from .states import (
+    RouteState,
+    DiscoveryState,
+    SelectionState,
+    ParameterState,
+    ExecutionState,
+    SelectedAlgorithmState,
+    GatheredParametersState,
+    ProcessingState,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,78 +119,6 @@ def set_processing_log_file(log_file: str) -> None:
     _logger = _setup_logger(log_file)
 
 
-def _infer_missing_parameters(
-    query: str, missing_params: List[str], metadata: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Attempt to infer missing required parameters from the user query.
-
-    Args:
-        query: User's original query
-        missing_params: List of parameter names that are missing
-        metadata: Algorithm metadata containing parameter definitions
-
-    Returns:
-        Dict of inferred parameter values
-    """
-    inferred = {}
-    query_lower = query.lower()
-
-    # Get list of available layers
-    try:
-        layers_result = list_qgis_layers.invoke({})
-        # Extract layer names from the result
-        layer_names = re.findall(r"^(\d+)\.\s+(\w+)", layers_result, re.MULTILINE)
-        available_layers = [name for _, name in layer_names]
-    except Exception:
-        available_layers = []
-
-    for param_name in missing_params:
-        # Find parameter definition
-        param_def = next(
-            (p for p in metadata.get("parameters", []) if p["name"] == param_name), None
-        )
-        if not param_def:
-            continue
-
-        # Try to infer INPUT layer
-        if param_name == "INPUT" or "input" in param_name.lower():
-            # Look for layer names mentioned in query
-            for layer_name in available_layers:
-                if layer_name.lower() in query_lower:
-                    inferred[param_name] = layer_name
-                    _logger.debug(
-                        f"Inferred {param_name} = {layer_name} (found in query)"
-                    )
-                    break
-            # If not found by name, use the first available layer as fallback
-            if param_name not in inferred and available_layers:
-                inferred[param_name] = available_layers[0]
-                _logger.debug(
-                    f"Inferred {param_name} = {available_layers[0]} (first available layer)"
-                )
-
-        # Try to infer numeric parameters (DISTANCE, BUFFER, etc.)
-        elif (
-            "distance" in param_name.lower()
-            or "buffer" in param_name.lower()
-            or "radius" in param_name.lower()
-        ):
-            numbers = re.findall(r"(\d+(?:\.\d+)?)", query)
-            if numbers:
-                # Try to convert to appropriate type
-                try:
-                    value = float(numbers[0]) if "." in numbers[0] else int(numbers[0])
-                    inferred[param_name] = value
-                    _logger.debug(
-                        f"Inferred {param_name} = {value} (extracted from query)"
-                    )
-                except ValueError:
-                    pass
-
-    return inferred
-
-
 def build_processing_graph(llm) -> any:
     """
     Build and compile a LangGraph processing workflow.
@@ -238,7 +140,7 @@ def build_processing_graph(llm) -> any:
     # Node 1: Route
     # Decide whether this is a processing task or should use other tools/LLM response
     # ─────────────────────────────────────────────────────────────────────────────
-    def route_node(state: ProcessingState) -> ProcessingState:
+    def route_node(state: RouteState) -> RouteState:
         """Determine if user query requires geoprocessing or general assistance."""
         _logger.info("=" * 80)
         _logger.info("NODE: route_node START")
@@ -300,7 +202,7 @@ def build_processing_graph(llm) -> any:
     # Node 2: Discover Algorithms
     # Find all algorithms that might match the user's query
     # ─────────────────────────────────────────────────────────────────────────────
-    def discover_algorithms_node(state: ProcessingState) -> ProcessingState:
+    def discover_algorithms_node(state: DiscoveryState) -> DiscoveryState:
         """Search for algorithms matching the user query."""
         _logger.info("=" * 80)
         _logger.info("NODE: discover_algorithms_node START")
@@ -340,6 +242,7 @@ def build_processing_graph(llm) -> any:
             f"NODE: discover_algorithms_node END -> {len(candidates)} candidates discovered"
         )
         return {
+            "messages": state.get("messages", []),
             "user_query": state["user_query"],
             "algorithm_candidates": candidates,
         }
@@ -348,7 +251,7 @@ def build_processing_graph(llm) -> any:
     # Node 3: Select Algorithm
     # Use LLM with structured output to pick the best algorithm from candidates
     # ─────────────────────────────────────────────────────────────────────────────
-    def select_algorithm_node(state: ProcessingState) -> ProcessingState:
+    def select_algorithm_node(state: SelectionState) -> SelectionState:
         """Use LLM with structured output to select the best matching algorithm."""
         _logger.info("=" * 80)
         _logger.info("NODE: select_algorithm_node START")
@@ -365,22 +268,9 @@ def build_processing_graph(llm) -> any:
             f"Selecting from {len(candidates)} candidates using structured output"
         )
 
-        # Format candidates as readable list
-        # candidates_text = "\n".join(
-        #     [f"  - {c['id']}: {c['name']}" for c in candidates[:500]]  # Limit to 500
-        # )
         candidates_text = "\n".join([f"  - {c['id']}" for c in candidates])
 
         _logger.debug(f"Candidates:\n{candidates_text}")
-
-        # Bind structured output to LLM
-        try:
-            structured_llm = llm.with_structured_output(SelectedAlgorithm)
-        except Exception as e:
-            _logger.warning(
-                f"Could not create structured LLM: {e}, falling back to JSON"
-            )
-            structured_llm = llm
 
         messages = [
             SystemMessage(content=PROCESSING_ALGORITHM_SELECTION_PROMPT),
@@ -390,39 +280,17 @@ def build_processing_graph(llm) -> any:
         ]
 
         try:
-            response = structured_llm.invoke(messages)
+            # Use structured output to force LLM to return SelectedAlgorithmState
+            structured_llm = llm.with_structured_output(SelectedAlgorithmState)
+            result: SelectedAlgorithmState = structured_llm.invoke(messages)
 
-            # Handle both structured and fallback responses
-            if isinstance(response, SelectedAlgorithm):
-                selected_alg = response.algorithm_id
-                confidence = response.confidence
-                reasoning = response.reasoning
-                _logger.debug(
-                    f"LLM response (structured): algorithm_id={selected_alg}, confidence={confidence}, reasoning={reasoning}"
-                )
-            else:
-                # Fallback: parse as text/JSON
-                _logger.debug(
-                    f"LLM response (text): {response.content if hasattr(response, 'content') else response}"
-                )
-                try:
-                    result = json.loads(
-                        response.content
-                        if hasattr(response, "content")
-                        else str(response)
-                    )
-                    selected_alg = result.get("algorithm_id")
-                    confidence = result.get("confidence", 0)
-                    reasoning = result.get("reasoning", "N/A")
-                except (json.JSONDecodeError, TypeError):
-                    # Last resort: pick first candidate
-                    _logger.warning(
-                        "Could not parse LLM response, using first candidate"
-                    )
-                    selected_alg = candidates[0]["id"] if candidates else None
-                    confidence = 0.5
-                    reasoning = "Fallback to first candidate"
+            selected_alg = result.get("algorithm_id")
+            confidence = result.get("confidence", 0.0)
+            reasoning = result.get("reasoning", "N/A")
 
+            _logger.debug(
+                f"LLM response (structured): algorithm_id={selected_alg}, confidence={confidence}, reasoning={reasoning}"
+            )
             _logger.info(
                 f"Selected algorithm: {selected_alg} (confidence: {confidence}, reasoning: {reasoning})"
             )
@@ -431,7 +299,7 @@ def build_processing_graph(llm) -> any:
             # Fallback: pick first candidate
             _logger.warning("Using first candidate as fallback")
             selected_alg = candidates[0]["id"] if candidates else None
-            confidence = 0.5
+            confidence = 0.1
             reasoning = "Error in selection, using first candidate"
 
         if not selected_alg:
@@ -443,6 +311,7 @@ def build_processing_graph(llm) -> any:
 
         _logger.info(f"NODE: select_algorithm_node END -> selected={selected_alg}")
         return {
+            "messages": state.get("messages", []),
             "user_query": state["user_query"],
             "selected_algorithm": selected_alg,
         }
@@ -451,7 +320,7 @@ def build_processing_graph(llm) -> any:
     # Node 4: Inspect Parameters
     # Get full parameter definitions for the selected algorithm
     # ─────────────────────────────────────────────────────────────────────────────
-    def inspect_parameters_node(state: ProcessingState) -> ProcessingState:
+    def inspect_parameters_node(state: SelectionState) -> ParameterState:
         """Fetch parameter definitions for the selected algorithm."""
         _logger.info("=" * 80)
         _logger.info("NODE: inspect_parameters_node START")
@@ -484,6 +353,7 @@ def build_processing_graph(llm) -> any:
 
         _logger.info(f"NODE: inspect_parameters_node END -> metadata retrieved")
         return {
+            "messages": state.get("messages", []),
             "user_query": state["user_query"],
             "selected_algorithm": state["selected_algorithm"],
             "algorithm_metadata": metadata,
@@ -493,7 +363,7 @@ def build_processing_graph(llm) -> any:
     # Node 5: Gather Parameters
     # Use LLM with structured output to extract parameter values from user query
     # ─────────────────────────────────────────────────────────────────────────────
-    def gather_parameters_node(state: ProcessingState) -> ProcessingState:
+    def gather_parameters_node(state: ParameterState) -> ParameterState:
         """Use LLM to extract and build the parameter dictionary."""
         _logger.info("=" * 80)
         _logger.info("NODE: gather_parameters_node START")
@@ -541,38 +411,18 @@ def build_processing_graph(llm) -> any:
             ),
         ]
 
-        # Try to use structured output
         try:
-            structured_llm = llm.with_structured_output(GatheredParameters)
-        except Exception as e:
-            _logger.warning(
-                f"Could not create structured LLM: {e}, falling back to JSON"
-            )
-            structured_llm = llm
+            # Use structured output to force LLM to return GatheredParametersState
+            structured_llm = llm.with_structured_output(GatheredParametersState)
+            gathered: GatheredParametersState = structured_llm.invoke(messages)
 
-        try:
-            response = structured_llm.invoke(messages)
+            parameters = gathered.get("parameters", {})
+            inferred_fields = gathered.get("inferred_fields", [])
+            notes = gathered.get("notes", "")
 
-            # Handle both structured and fallback responses
-            if isinstance(response, GatheredParameters):
-                parameters = response.parameters
-                inferred_fields = response.inferred_fields
-                notes = response.notes
-
-                # if OUTPUT is not in parameters, add it as None (to use default temp output)
-                if "OUTPUT" not in parameters:
-                    parameters["OUTPUT"] = "TEMPORARY_OUTPUT"
-            else:
-                # Fallback: parse as text/JSON
-                _logger.debug(
-                    f"LLM response (text): {response.content if hasattr(response, 'content') else response}"
-                )
-                result = json.loads(
-                    response.content if hasattr(response, "content") else str(response)
-                )
-                parameters = result.get("parameters", {})
-                inferred_fields = result.get("inferred_fields", [])
-                notes = result.get("notes", "")
+            # Ensure OUTPUT parameter is set
+            if "OUTPUT" not in parameters:
+                parameters["OUTPUT"] = "TEMPORARY_OUTPUT"
 
             _logger.info(f"Extracted parameters: {parameters}")
 
@@ -616,34 +466,13 @@ def build_processing_graph(llm) -> any:
                 for p in required_params
                 if p not in parameters or parameters[p] is None
             ]
-
-            print(
-                "\n\nMissing required parameters after initial extraction:",
-                missing_required,
-            )
-
             if missing_required:
-                error_msg = f"Missing required parameters: {', '.join(missing_required)}. LLM extracted: {parameters}"
-                _logger.warning(error_msg)
-                _logger.warning("Attempting to infer missing parameters from query...")
-
-                # Try to infer missing parameters from query
-                inferred = _infer_missing_parameters(query, missing_required, metadata)
-                parameters.update(inferred)
-                _logger.info(f"After inference: {parameters}")
-
-                # Check again
-                still_missing = [
-                    p
-                    for p in missing_required
-                    if p not in parameters or parameters[p] is None
-                ]
-                if still_missing:
-                    error_msg = f"Could not infer required parameters: {', '.join(still_missing)}"
-                    _logger.error(error_msg)
-                    return {
-                        "error_message": error_msg,
-                    }
+                error_msg = (
+                    f"Missing required parameters: {', '.join(missing_required)}. "
+                    f"LLM extracted: {parameters}"
+                )
+                _logger.error(error_msg)
+                return {"error_message": error_msg}
 
         except (json.JSONDecodeError, AttributeError, ValueError, TypeError) as e:
             _logger.error(f"Error extracting parameters: {str(e)}", exc_info=True)
@@ -655,6 +484,7 @@ def build_processing_graph(llm) -> any:
             f"NODE: gather_parameters_node END -> {len(parameters)} parameters gathered"
         )
         return {
+            "messages": state.get("messages", []),
             "user_query": state["user_query"],
             "selected_algorithm": state["selected_algorithm"],
             "gathered_parameters": parameters,
@@ -664,7 +494,7 @@ def build_processing_graph(llm) -> any:
     # Node 6: Execute Processing
     # Run the algorithm with gathered parameters
     # ─────────────────────────────────────────────────────────────────────────────
-    def execute_node(state: ProcessingState) -> ProcessingState:
+    def execute_node(state: ParameterState) -> ExecutionState:
         """Execute the processing algorithm."""
         _logger.info("=" * 80)
         _logger.info("NODE: execute_node START")
@@ -697,6 +527,7 @@ def build_processing_graph(llm) -> any:
 
         _logger.info(f"NODE: execute_node END -> execution successful")
         return {
+            "messages": state.get("messages", []),
             "selected_algorithm": algorithm,
             "gathered_parameters": parameters,
             "execution_result": result,
@@ -706,7 +537,7 @@ def build_processing_graph(llm) -> any:
     # Node 7: Finalize
     # Summarize results and return to user
     # ─────────────────────────────────────────────────────────────────────────────
-    def finalize_node(state: ProcessingState) -> ProcessingState:
+    def finalize_node(state: ExecutionState) -> ProcessingState:
         """Prepare a summary prompt and let the LLM generate the final message."""
         _logger.info("=" * 80)
         _logger.info("NODE: finalize_node START")
@@ -733,7 +564,8 @@ def build_processing_graph(llm) -> any:
         )
         human = HumanMessage(
             content=(
-                "Here is the structured context of the run (JSON):\n" + json.dumps(context_payload, default=str)
+                "Here is the structured context of the run (JSON):\n"
+                + json.dumps(context_payload, default=str)
             )
         )
 

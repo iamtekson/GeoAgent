@@ -3,11 +3,8 @@
 Geoprocessing tools for QGIS operations.
 Provides tools for geometric operations (buffer, clip, dissolve, etc.) and spatial filtering/selection.
 """
-import uuid
 from typing import Optional, List, Dict, Any
 from langchain_core.tools import tool
-
-from .io import get_qgis_interface
 from qgis.core import (
     QgsApplication,
     QgsProcessingAlgorithm,
@@ -110,7 +107,7 @@ def list_processing_algorithms(
     List available QGIS processing algorithms.
 
     Args:
-        provider: Optional provider id to filter. (e.g., "native", 'pdal', '3d')
+        provider: Optional provider id to filter. (e.g., "native", "pdal", "3d")
         search: Optional case-insensitive substring to filter by id or name.
         limit: Maximum number of algorithms to return.
 
@@ -242,7 +239,7 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
 
 @tool
 def find_processing_algorithm(
-    query: str, provider: Optional[str] = None, limit: int = 20
+    query: str, provider: Optional[str] = "native", limit: int = 300
 ) -> Dict[str, Any]:
     """
     Find algorithms that match a natural language query.
@@ -252,33 +249,27 @@ def find_processing_algorithm(
 
     Args:
         query: Natural language description, e.g., 'buffer layer by 50m'.
-        provider: Optional provider id to filter.
+        provider: Optional provider id to filter. "native" by default.
         limit: Max number of matches to return.
 
     Returns:
         Dict with matches list for LLM to choose from.
     """
     try:
-        # Extract potential operation keywords from query
-        query_lower = query.lower()
-
-        # Use list_processing_algorithms to get candidates
-        result = list_processing_algorithms.invoke({})
-
+        search_term = query.lower().strip()
+        result = list_processing_algorithms.invoke(
+            {"search": None, "provider": provider, "limit": limit}
+        )
         items = result.get("items", [])
 
-        # If no results with keyword, try broader search with first word
-        if not items and len(query_lower.split()) > 0:
-            first_word = query_lower.split()[0]
-            result = list_processing_algorithms.invoke(
-                {"search": first_word, "provider": provider, "limit": limit}
-            )
-            items = result.get("items", [])
+        if not items and search_term:
+            raise Exception("No algorithms found matching the query.")
 
         return {
             "best": items[0]["id"] if items else None,
             "matches": items,
-            "query": query_lower,
+            "query": search_term,
+            "search_term": search_term,
         }
     except Exception as e:
         raise Exception(f"Find algorithm error: {str(e)}")
