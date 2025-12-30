@@ -138,6 +138,12 @@ class GeoAgent:
                 Qt.QueuedConnection,
             )
             if not ok:
+                QgsMessageLog.logMessage(
+                    "QMetaObject.invokeMethod('doRefresh') returned False; "
+                    "falling back to QTimer.singleShot.",
+                    "GeoAgent",
+                    level=Qgis.Warning,
+                )
                 QTimer.singleShot(0, self._refresh_dispatcher.doRefresh)
         except Exception as e:
             self._log_error("refresh_callback", e)

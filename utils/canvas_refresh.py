@@ -6,10 +6,10 @@ This module provides a RefreshDispatcher QObject for safe canvas refresh
 operations on the main Qt thread, along with getter/setter functions for
 managing the QGIS interface and refresh callback references.
 """
-from qgis.PyQt.QtCore import QObject, pyqtSlot, QMetaObject, Qt, QTimer
+from qgis.PyQt.QtCore import QObject, pyqtSlot
 from qgis.core import Qgis, QgsMessageLog, QgsProject
 
-# Global references (it will update from geo_agent module)
+# Global references (it will be updated from the geo_agent module)
 _qgis_iface = None
 _refresh_callback = None
 
@@ -34,14 +34,14 @@ class RefreshDispatcher(QObject):
 
             # Sync canvas layer stack with project layers and force redraw
             project_layers = list(QgsProject.instance().mapLayers().values())
-            canvas.setRenderFlag(False)
+            # canvas.setRenderFlag(False)
             canvas.setLayers(project_layers)
-            canvas.setRenderFlag(True)
+            # canvas.setRenderFlag(True)
             canvas.clearCache()
-            canvas.refreshAllLayers()
+            # canvas.refreshAllLayers()
             canvas.refresh()
-            canvas.update()
-            canvas.repaint()
+            # canvas.update()
+            # canvas.repaint()
         except Exception as e:
             try:
                 QgsMessageLog.logMessage(str(e), "GeoAgent", level=Qgis.Warning)

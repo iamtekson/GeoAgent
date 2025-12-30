@@ -1,4 +1,4 @@
-from ..utils.canvas_refresh import get_qgis_interface, refresh_map_canvas
+from ..utils.canvas_refresh import refresh_map_canvas
 from typing import Optional
 from qgis.core import (
     QgsProject,

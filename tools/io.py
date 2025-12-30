@@ -366,12 +366,12 @@ def new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
         if file_ext not in valid_extensions:
             return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
 
-        # creat directory if needed
+        # create directory if needed
         project_dir = os.path.dirname(path)
         if project_dir and not os.path.exists(project_dir):
             os.makedirs(project_dir)
 
-        # save th project
+        # save the project
         project.setFileName(path)
         success = project.write(path)
 
@@ -410,35 +410,8 @@ def delete_existing_project(path: str) -> str:
         if file_ext not in valid_extensions:
             return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
 
-        # iface = get_qgis_interface()
-        # if not iface:
-        #     return "Error: QGIS interface not initialized. Cannot show confirmation dialog."
-
-        # # show confirmation dialog
-        # from qgis.PyQt.QtWidgets import QMessageBox
-
-        # msg_box = QMessageBox(iface.mainWindow())
-        # msg_box.setWindowTitle("Delete Project")
-        # msg_box.setText(
-        #     f"Do you really want to delete the project file:\n\n'{path}'\n\nThis action cannot be undone."
-        # )
-        # msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        # msg_box.setDefaultButton(QMessageBox.No)
-        # msg_box.setIcon(QMessageBox.Warning)
-
-        # # get user response
-        # response = msg_box.exec_()
-
-        # if response == QMessageBox.Yes:
-        # # delete the project file
-        # os.remove(path)
-        # return f"Success: Project file '{path}' has been deleted."
-
         os.remove(path)
         return f"Success: Project file '{path}' has been deleted."
-
-        # else:
-        #     return f"Cancelled: Project file '{path}' was not deleted."
 
     except Exception as e:
         return f"Error deleting project: {str(e)}"
@@ -451,7 +424,6 @@ __all__ = [
     "get_layer_columns",
     "zoom_to_layer",
     "remove_layer",
-    "set_qgis_interface",
     "new_qgis_project",
     "delete_existing_project",
 ]
