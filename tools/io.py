@@ -15,7 +15,8 @@ from qgis.core import (
 )
 from qgis.gui import QgisInterface
 from langchain_core.tools import tool
-from ..utils.canvas_refresh import get_qgis_interface, refresh_map_canvas
+from ..utils.canvas_refresh import get_qgis_interface
+from ..utils.layer_operations import remove_layer_on_main_thread
 from ..utils.project_loader import load_project_on_main_thread
 
 # logger for this module
@@ -351,14 +352,19 @@ def remove_layer(layer_name: str) -> str:
             )
             return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
 
-        # Remove the layer from the project
-        project.removeMapLayer(layer_id)
-        _logger.info(f"Successfully removed layer '{layer_name}' from project")
-
-        # Refresh the map canvas
-        refresh_map_canvas()
-
-        return f"Success: Layer '{layer_name}' has been removed from the project."
+        # remove the layer using main thread via callback
+        result = remove_layer_on_main_thread(layer_id, layer_name)
+        
+        # for logging information
+        if result.get("error"):
+            _logger.error(f"Failed to remove layer: {result['error']}")
+            return f"Error: {result['error']}"
+        elif result.get("success"):
+            _logger.info(f"Successfully removed layer '{layer_name}' from project")
+            return f"Success: Layer '{layer_name}' has been removed from the project."
+        else:
+            _logger.error(f"Unknown error removing layer '{layer_name}'")
+            return f"Error: Failed to remove layer '{layer_name}'."
 
     except Exception as e:
         _logger.error(f"Error removing layer: {str(e)}", exc_info=True)

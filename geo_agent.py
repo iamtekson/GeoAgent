@@ -59,6 +59,10 @@ from .utils.canvas_refresh import (
     set_qgis_interface,
     set_refresh_callback,
 )
+from .utils.layer_operations import (
+    LayerRemovalDispatcher,
+    set_layer_removal_callback,
+)
 from .utils.project_loader import (
     ProjectLoadDispatcher,
     set_project_load_callback,
@@ -94,6 +98,9 @@ class GeoAgent:
 
         # Dispatcher for main-thread project loading
         self._project_load_dispatcher = ProjectLoadDispatcher(self.iface)
+
+        # Dispatcher for main-thread layer removal
+        self._layer_removal_dispatcher = LayerRemovalDispatcher(self.iface)
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -299,6 +306,42 @@ class GeoAgent:
             return self._project_load_dispatcher.result
         except Exception as e:
             error_msg = f"_project_load_callback error: {e}"
+            QgsMessageLog.logMessage(error_msg, "GeoAgent", level=Qgis.Warning)
+            return {"success": False, "error": error_msg}
+
+    def _layer_removal_callback(self, layer_id, layer_name):
+        """Thread-safe layer removal callback using signals."""
+        try:
+
+            def on_result_ready():
+                loop.quit()
+
+            # connect signal to quit when result is ready
+            self._layer_removal_dispatcher.result_ready.connect(on_result_ready)
+
+            # queue the removal operation on the main thread
+            QMetaObject.invokeMethod(
+                self._layer_removal_dispatcher,
+                "doRemoveLayer",
+                Qt.QueuedConnection,
+                Q_ARG(str, layer_id),
+                Q_ARG(str, layer_name),
+            )
+
+            # wait for the dispatcher to signal completion
+            loop = QEventLoop()
+
+            # max wait 10 seconds timeout
+            QTimer.singleShot(10000, loop.quit)
+            loop.exec_()
+
+            # disconnect signal to avoid memory leaks
+            self._layer_removal_dispatcher.result_ready.disconnect(on_result_ready)
+
+            # return the result that was set by the dispatcher
+            return self._layer_removal_dispatcher.result
+        except Exception as e:
+            error_msg = f"_layer_removal_callback error: {e}"
             QgsMessageLog.logMessage(error_msg, "GeoAgent", level=Qgis.Warning)
             return {"success": False, "error": error_msg}
 
@@ -585,6 +628,9 @@ class GeoAgent:
 
             # Register thread-safe project load callback method
             set_project_load_callback(self._project_load_callback)
+
+            # Register thread-safe layer removal callback method
+            set_layer_removal_callback(self._layer_removal_callback)
         except Exception as e:
             self._log_error("initialize_tools_interface", e)
 
