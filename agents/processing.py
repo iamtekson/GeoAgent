@@ -55,7 +55,7 @@ from .states import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-# Maximum number of LLM->tools->LLM cycles to prevent infinite loops
+# Maximum number of graph iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 10
 
 
@@ -599,11 +599,11 @@ def build_processing_graph(llm) -> any:
             try:
                 tool_inst = TOOLS.get(call["name"])
                 if tool_inst is None:
-                    result = f"Error: Tool '{call['name']}' is not available."
+                    content = f"Error: Tool '{call['name']}' is not available."
                 else:
                     result = tool_inst.invoke(call["args"])
-                # Ensure result is a string for ToolMessage
-                content = result if isinstance(result, str) else str(result)
+                    # Ensure result is a string for ToolMessage
+                    content = result if isinstance(result, str) else str(result)
                 tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
             except Exception as e:
                 tool_messages.append(
