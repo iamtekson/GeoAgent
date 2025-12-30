@@ -589,9 +589,20 @@ def build_processing_graph(llm) -> any:
         last_msg = state["messages"][-1]
         tool_messages = []
         for call in getattr(last_msg, "tool_calls", []) or []:
-            tool_inst = TOOLS[call["name"]]
-            result = tool_inst.invoke(call["args"])
-            tool_messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+            try:
+                tool_inst = TOOLS.get(call["name"])
+                if tool_inst is None:
+                    result = f"Error: Tool '{call['name']}' is not available."
+                else:
+                    result = tool_inst.invoke(call["args"])
+                tool_messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+            except Exception as e:
+                tool_messages.append(
+                    ToolMessage(
+                        content=f"Error executing tool '{call['name']}': {str(e)}",
+                        tool_call_id=call["id"],
+                    )
+                )
         return {"messages": state["messages"] + tool_messages}
 
     def llm_node(state: ProcessingState) -> ProcessingState:
@@ -659,9 +670,10 @@ def build_processing_graph(llm) -> any:
     graph.add_edge("finalize", "llm")
     graph.add_edge("tools", "llm")
 
-    # End
-    graph.add_edge("llm", END)
-    return graph.compile(checkpointer=MemorySaver())
+    return graph.compile(
+        checkpointer=MemorySaver(),
+        recursion_limit=10,  # Prevent infinite loops
+    )
 
 
 def invoke_processing_app(
