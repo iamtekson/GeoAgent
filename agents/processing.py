@@ -50,73 +50,18 @@ from .states import (
     GatheredParametersState,
     ProcessingState,
 )
+from ..config.settings import SHOW_DEBUG_LOGS
+from ..logger.processing_logger import (
+    get_processing_logger,
+    set_processing_ui_log_handler,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging Setup
 # ─────────────────────────────────────────────────────────────────────────────
-def _setup_logger(log_file: Optional[str] = None) -> logging.Logger:
-    """
-    Setup logger for processing graph with both console and file handlers.
-
-    Args:
-        log_file: Path to log file. If None, creates one in temp directory.
-
-    Returns:
-        Configured logger instance
-    """
-    logger = logging.getLogger("GeoAgent.Processing")
-    logger.setLevel(logging.DEBUG)
-
-    # Remove existing handlers to avoid duplicates
-    logger.handlers.clear()
-
-    # Determine log file path
-    if log_file is None:
-        # Create logs folder in plugin directory
-        plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logs_dir = os.path.join(plugin_dir, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(logs_dir, f"processing_{timestamp}.log")
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    console_format = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    console_handler.setFormatter(console_format)
-
-    # File handler
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_format = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(file_format)
-
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
-    return logger
-
-
-# Create global logger instance
-_logger = _setup_logger()
-
-
-def set_processing_log_file(log_file: str) -> None:
-    """
-    Set a custom log file path for processing graph output.
-
-    Args:
-        log_file: Absolute path to desired log file
-    """
-    global _logger
-    _logger = _setup_logger(log_file)
+# Create global logger instance (without UI handler; wired centrally)
+_logger = get_processing_logger()
 
 
 def build_processing_graph(llm) -> Any:
@@ -706,5 +651,5 @@ def invoke_processing_app(
 __all__ = [
     "build_processing_graph",
     "invoke_processing_app",
-    "set_processing_log_file",
+    "set_processing_ui_log_handler",
 ]

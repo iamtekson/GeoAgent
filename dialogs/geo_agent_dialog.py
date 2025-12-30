@@ -27,6 +27,9 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 
+from ..logger.logger import UILogHandler
+from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES
+
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(
     os.path.join(os.path.dirname(__file__), "geo_agent_dialog_base.ui")
@@ -44,11 +47,31 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
 
+        # Initialize UI Log Handler
+        self._setup_logging()
+
         # Set default values for UI controls
         self._set_defaults()
 
         # Setup connections for mode switching
         self.setup_connections()
+
+    def _setup_logging(self):
+        """Initialize the UI log handler for the logs tab."""
+        try:
+            # Get the text browser widget from the logs tab
+            if hasattr(self, "geoagent_logs"):
+                # Create and configure the UI log handler
+                ui_log_handler = UILogHandler(
+                    text_browser=self.geoagent_logs,
+                    max_lines=MAX_LOG_LINES,
+                    show_debug=SHOW_DEBUG_LOGS,
+                )
+
+                # Store the handler as an attribute for later access
+                self.ui_log_handler = ui_log_handler
+        except Exception as e:
+            print(f"Failed to initialize UI logging: {e}")
 
     def _set_defaults(self):
         """Set default values for dialog controls."""
@@ -105,6 +128,18 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         except Exception:
             pass
         return "general"
+
+    def get_ui_log_handler(self):
+        """
+        Get the UI log handler for this dialog.
+
+        This method allows other parts of the plugin to access the log handler
+        so they can add it to their loggers.
+
+        Returns:
+            UILogHandler instance or None if not initialized
+        """
+        return getattr(self, "ui_log_handler", None)
 
     def setup_connections(self):
         # Connect the combo box change signal to our switching function
