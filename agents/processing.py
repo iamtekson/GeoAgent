@@ -51,12 +51,7 @@ from .states import (
     ProcessingState,
 )
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Constants
-# ─────────────────────────────────────────────────────────────────────────────
-# Maximum number of graph iterations to prevent infinite loops
-MAX_TOOL_ITERATIONS = 10
+from ..config.settings import MAX_TOOL_ITERATIONS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -604,7 +599,9 @@ def build_processing_graph(llm) -> Any:
                     result = tool_inst.invoke(call["args"])
                     # Ensure result is a string for ToolMessage
                     content = result if isinstance(result, str) else str(result)
-                tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
+                tool_messages.append(
+                    ToolMessage(content=content, tool_call_id=call["id"])
+                )
             except Exception as e:
                 tool_messages.append(
                     ToolMessage(

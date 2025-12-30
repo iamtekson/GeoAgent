@@ -50,3 +50,6 @@ MAX_HISTORY_LENGTH = 10
 
 # Message display duration (in seconds)
 QGIS_MESSAGE_DURATION = 5
+
+# Maximum number of graph iterations to prevent infinite loops
+MAX_TOOL_ITERATIONS = 10
