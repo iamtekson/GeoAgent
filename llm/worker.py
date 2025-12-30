@@ -8,7 +8,7 @@ class LLMWorker(QThread):
 
     finished = pyqtSignal()  # Emitted when inference complete
     error = pyqtSignal(str)  # Emitted on error
-    result_ready = pyqtSignal(AIMessage)  # Emitted with result
+    result_ready = pyqtSignal(object)  # Emitted result (AIMessage, ToolMessage, etc.)
 
     def __init__(self, app, thread_id: str, messages, invoke_app_async):
         super().__init__()
@@ -26,13 +26,13 @@ class LLMWorker(QThread):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                # Run async invoke
-                ai_msg = loop.run_until_complete(
+                # Run async invoke - returns the last message (could be AIMessage, ToolMessage, etc.)
+                last_msg = loop.run_until_complete(
                     self.invoke_app_async(
                         self.app, thread_id=self.thread_id, messages=self.messages
                     )
                 )
-                self.result_ready.emit(ai_msg)
+                self.result_ready.emit(last_msg)
             finally:
                 loop.close()
         except Exception as e:
