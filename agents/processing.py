@@ -51,8 +51,6 @@ from .states import (
     ProcessingState,
 )
 
-from ..config.settings import MAX_TOOL_ITERATIONS
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging Setup
@@ -676,10 +674,7 @@ def build_processing_graph(llm) -> Any:
     graph.add_edge("finalize", "llm")
     graph.add_edge("tools", "llm")
 
-    return graph.compile(
-        checkpointer=MemorySaver(),
-        recursion_limit=MAX_TOOL_ITERATIONS,
-    )
+    return graph.compile(checkpointer=MemorySaver())
 
 
 def invoke_processing_app(
