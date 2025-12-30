@@ -27,6 +27,8 @@ from qgis.PyQt.QtCore import (
     QCoreApplication,
     Qt,
     QThread,
+    QMetaObject,
+    QTimer,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
@@ -48,6 +50,12 @@ from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
 from .llm.worker import LLMWorker
 from langchain_core.messages import AIMessage
 from .prompts.system import GENERAL_SYSTEM_PROMPT
+from .utils.canvas_refresh import (
+    RefreshDispatcher,
+    set_qgis_interface,
+    set_refresh_callback,
+)
+from typing import Optional
 import importlib
 import subprocess
 import sys
@@ -71,6 +79,9 @@ class GeoAgent:
         """
         # Save reference to the QGIS interface
         self.iface = iface
+
+        # Dispatcher for main-thread canvas refresh
+        self._refresh_dispatcher = RefreshDispatcher(self.iface)
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -117,6 +128,25 @@ class GeoAgent:
             QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
         except Exception:
             pass
+
+    def _refresh_callback(self):
+        """Thread-safe refresh callback invoked by tools. Queues a dispatcher slot on the main thread."""
+        try:
+            ok = QMetaObject.invokeMethod(
+                self._refresh_dispatcher,
+                "doRefresh",
+                Qt.QueuedConnection,
+            )
+            if not ok:
+                QgsMessageLog.logMessage(
+                    "QMetaObject.invokeMethod('doRefresh') returned False; "
+                    "falling back to QTimer.singleShot.",
+                    "GeoAgent",
+                    level=Qgis.Warning,
+                )
+                QTimer.singleShot(0, self._refresh_dispatcher.doRefresh)
+        except Exception as e:
+            self._log_error("refresh_callback", e)
 
     def _ensure_dependencies_installed(self):
         """Ensure required Python packages are installed via pyproject.toml."""
@@ -385,9 +415,11 @@ class GeoAgent:
 
         # Initialize QGIS interface for tools
         try:
-            from .tools.io import set_qgis_interface
-
+            # Register QGIS interface for tools module
             set_qgis_interface(self.iface)
+
+            # Register thread-safe refresh callback method
+            set_refresh_callback(self._refresh_callback)
         except Exception as e:
             self._log_error("initialize_tools_interface", e)
 

@@ -99,7 +99,7 @@ p, li { white-space: pre-wrap; }
             <item>
              <widget class="QRadioButton" name="processing_mode">
               <property name="text">
-               <string>Processing</string>
+               <string>Processing (Experimental)</string>
               </property>
              </widget>
             </item>
