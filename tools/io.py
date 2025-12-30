@@ -10,25 +10,12 @@ from qgis.core import (
     QgsVectorLayer,
     QgsRasterLayer,
     QgsMapLayer,
-    QgsCoordinateReferenceSystem,    
+    QgsCoordinateReferenceSystem,
     QgsVectorFileWriter,
 )
 from qgis.gui import QgisInterface
 from langchain_core.tools import tool
-
-# Global reference to QGIS interface - set by the plugin
-_qgis_iface = None
-
-
-def set_qgis_interface(iface):
-    """Set the QGIS interface reference for tools to use."""
-    global _qgis_iface
-    _qgis_iface = iface
-
-
-def get_qgis_interface():
-    """Get the QGIS interface reference."""
-    return _qgis_iface
+from ..utils.canvas_refresh import get_qgis_interface, refresh_map_canvas
 
 
 @tool
@@ -61,7 +48,15 @@ def add_layer_to_qgis(
         # Auto-detect layer type if not provided
         if not layer_type:
             raster_extensions = [".tif", ".tiff", ".img", ".asc", ".nc", ".jpg", ".png"]
-            vector_extensions = [".shp", ".geojson", ".json", ".gpkg", ".kml", ".gml", ".csv"]
+            vector_extensions = [
+                ".shp",
+                ".geojson",
+                ".json",
+                ".gpkg",
+                ".kml",
+                ".gml",
+                ".csv",
+            ]
 
             ext = os.path.splitext(path_or_url.lower())[1]
             if ext in raster_extensions:
@@ -325,32 +320,12 @@ def remove_layer(layer_name: str) -> str:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
             return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
 
-        # Show confirmation dialog
-        from qgis.PyQt.QtWidgets import QMessageBox
+        # Remove the layer from the project
+        project.removeMapLayer(layer_id)
+        # Refresh the map canvas
+        refresh_map_canvas()
 
-        msg_box = QMessageBox(iface.mainWindow())
-        msg_box.setWindowTitle("Remove Layer")
-        msg_box.setText(
-            f"Do you really want to remove the layer '{layer_name}'?\n\nThis action cannot be undone."
-        )
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        msg_box.setIcon(QMessageBox.Warning)
-
-        # Get user response
-        response = msg_box.exec_()
-
-        if response == QMessageBox.Yes:
-            # Remove the layer from the project
-            project.removeMapLayer(layer_id)
-
-            # refresh iface
-            iface.mapCanvas().refresh()
-
-            return f"Success: Layer '{layer_name}' has been removed from the project."
-
-        else:
-            return f"Cancelled: Layer '{layer_name}' was not removed."
+        return f"Success: Layer '{layer_name}' has been removed from the project."
 
     except Exception as e:
         return f"Error removing layer: {str(e)}"
@@ -374,39 +349,40 @@ def new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
     """
     try:
         project = QgsProject.instance()
-        
+
         # clear current project
         project.clear()
-        
+
         # set project title
         if project_name:
             project.setTitle(project_name)
         else:
             project.setTitle(os.path.splitext(os.path.basename(path))[0])
-        
+
         # validate file extensions
-        valid_extensions = ['.qgs', '.qgz']
+        valid_extensions = [".qgs", ".qgz"]
         file_ext = os.path.splitext(path.lower())[1]
-        
+
         if file_ext not in valid_extensions:
             return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
-        
+
         # creat directory if needed
         project_dir = os.path.dirname(path)
         if project_dir and not os.path.exists(project_dir):
             os.makedirs(project_dir)
-        
+
         # save th project
         project.setFileName(path)
         success = project.write(path)
-        
+
         if success:
             return f"Success: Created new project '{project.title()}' at '{path}'"
         else:
             return f"Error: Failed to save project to '{path}'. Check file permissions and path validity."
-            
+
     except Exception as e:
         return f"Error creating project: {str(e)}"
+
 
 @tool
 def delete_existing_project(path: str) -> str:
@@ -424,45 +400,49 @@ def delete_existing_project(path: str) -> str:
         - delete_existing_project('/geoagent/temp_analysis.qgz')
     """
     try:
-        
+
         if not os.path.exists(path):
             return f"Error: Project file '{path}' does not exist."
-        
-        valid_extensions = ['.qgs', '.qgz']
+
+        valid_extensions = [".qgs", ".qgz"]
         file_ext = os.path.splitext(path.lower())[1]
-        
+
         if file_ext not in valid_extensions:
             return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
-        
-        iface = get_qgis_interface()
-        if not iface:
-            return "Error: QGIS interface not initialized. Cannot show confirmation dialog."
 
-        # show confirmation dialog
-        from qgis.PyQt.QtWidgets import QMessageBox
+        # iface = get_qgis_interface()
+        # if not iface:
+        #     return "Error: QGIS interface not initialized. Cannot show confirmation dialog."
 
-        msg_box = QMessageBox(iface.mainWindow())
-        msg_box.setWindowTitle("Delete Project")
-        msg_box.setText(
-            f"Do you really want to delete the project file:\n\n'{path}'\n\nThis action cannot be undone."
-        )
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        msg_box.setIcon(QMessageBox.Warning)
+        # # show confirmation dialog
+        # from qgis.PyQt.QtWidgets import QMessageBox
 
-        # get user response
-        response = msg_box.exec_()
+        # msg_box = QMessageBox(iface.mainWindow())
+        # msg_box.setWindowTitle("Delete Project")
+        # msg_box.setText(
+        #     f"Do you really want to delete the project file:\n\n'{path}'\n\nThis action cannot be undone."
+        # )
+        # msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        # msg_box.setDefaultButton(QMessageBox.No)
+        # msg_box.setIcon(QMessageBox.Warning)
 
-        if response == QMessageBox.Yes:
-            # delete the project file
-            os.remove(path)
-            return f"Success: Project file '{path}' has been deleted."
-        else:
-            return f"Cancelled: Project file '{path}' was not deleted."
-            
+        # # get user response
+        # response = msg_box.exec_()
+
+        # if response == QMessageBox.Yes:
+        # # delete the project file
+        # os.remove(path)
+        # return f"Success: Project file '{path}' has been deleted."
+
+        os.remove(path)
+        return f"Success: Project file '{path}' has been deleted."
+
+        # else:
+        #     return f"Cancelled: Project file '{path}' was not deleted."
+
     except Exception as e:
         return f"Error deleting project: {str(e)}"
-    
+
 
 # Export tools for easy import
 __all__ = [

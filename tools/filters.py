@@ -1,4 +1,4 @@
-from .io import get_qgis_interface
+from ..utils.canvas_refresh import get_qgis_interface, refresh_map_canvas
 from typing import Optional
 from qgis.core import (
     QgsProject,
@@ -99,10 +99,7 @@ def select_by_attribute(
         layer.selectByIds(selected_ids)
 
         # Highlight on map
-        iface = get_qgis_interface()
-        if iface:
-            canvas = iface.mapCanvas()
-            canvas.refresh()
+        refresh_map_canvas()
 
         return f"Success: Selected {len(selected_ids)} features in '{layer_name}' where {field_name} {operator} '{value}'."
 
@@ -232,10 +229,7 @@ def select_by_geometry(
         layer.selectByIds(selected_ids)
 
         # Highlight on map
-        iface = get_qgis_interface()
-        if iface:
-            canvas = iface.mapCanvas()
-            canvas.refresh()
+        refresh_map_canvas()
 
         return f"Success: Selected {len(selected_ids)} features in '{layer_name}' using '{geometry_filter}' filter."
 
