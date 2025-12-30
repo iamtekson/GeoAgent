@@ -42,7 +42,7 @@ GeoAgent provides powerful geospatial capabilities through natural language inte
   - Options: `largest`, `smallest`, `intersecting`, `inside`, `touching`
 - **Attribute queries**: Ask questions about your data
 
-### 🛠️ Geoprocessing Operations (Future Release)
+### 🛠️ Geoprocessing Operations (Experimental)
 
 - **Buffer**: Create buffer zones around features
 - **Clip**: Clip layers by extent or other layers
@@ -60,7 +60,7 @@ GeoAgent provides powerful geospatial capabilities through natural language inte
 - Data querying and analysis
 - Tool selection and guidance
 
-#### Processing Mode (Future Release)
+#### Processing Mode (Experimental)
 
 - Automated geoprocessing workflow execution
 - Algorithm detection and parameter extraction
