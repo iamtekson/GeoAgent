@@ -53,6 +53,13 @@ from .states import (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────────────────────
+# Maximum number of graph iterations to prevent infinite loops
+MAX_TOOL_ITERATIONS = 10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Logging Setup
 # ─────────────────────────────────────────────────────────────────────────────
 def _setup_logger(log_file: Optional[str] = None) -> logging.Logger:
@@ -589,9 +596,22 @@ def build_processing_graph(llm) -> Any:
         last_msg = state["messages"][-1]
         tool_messages = []
         for call in getattr(last_msg, "tool_calls", []) or []:
-            tool_inst = TOOLS[call["name"]]
-            result = tool_inst.invoke(call["args"])
-            tool_messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+            try:
+                tool_inst = TOOLS.get(call["name"])
+                if tool_inst is None:
+                    content = f"Error: Tool '{call['name']}' is not available."
+                else:
+                    result = tool_inst.invoke(call["args"])
+                    # Ensure result is a string for ToolMessage
+                    content = result if isinstance(result, str) else str(result)
+                tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
+            except Exception as e:
+                tool_messages.append(
+                    ToolMessage(
+                        content=f"Error executing tool '{call['name']}': {str(e)}",
+                        tool_call_id=call["id"],
+                    )
+                )
         return {"messages": state["messages"] + tool_messages}
 
     def llm_node(state: ProcessingState) -> ProcessingState:
@@ -659,9 +679,10 @@ def build_processing_graph(llm) -> Any:
     graph.add_edge("finalize", "llm")
     graph.add_edge("tools", "llm")
 
-    # End
-    graph.add_edge("llm", END)
-    return graph.compile(checkpointer=MemorySaver())
+    return graph.compile(
+        checkpointer=MemorySaver(),
+        recursion_limit=MAX_TOOL_ITERATIONS,
+    )
 
 
 def invoke_processing_app(
