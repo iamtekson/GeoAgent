@@ -16,7 +16,7 @@ from qgis.core import (
 from qgis.gui import QgisInterface
 from langchain_core.tools import tool
 from ..utils.canvas_refresh import get_qgis_interface, refresh_map_canvas
-
+from ..utils.project_loader import load_project_on_main_thread
 
 @tool
 def add_layer_to_qgis(
@@ -332,7 +332,7 @@ def remove_layer(layer_name: str) -> str:
 
 
 @tool
-def new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
+def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
     """
     Create a new QGIS project and save it to a file.
 
@@ -385,6 +385,46 @@ def new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
 
 
 @tool
+def load_qgis_project(path: str) -> str:
+    """
+    Loads an existing QGIS project file.
+
+    Args:
+        path: File path to the QGIS project file (e.g., '/path/to/project.qgs' or '/path/to/project.qgz')
+
+    Returns:
+        Success message with project details or error message.
+
+    Examples:
+        - load_qgis_project('/geoagent/raster_analysis.qgs')
+        - load_qgis_project('C:/Users/asus/geoagent/map_project.qgz')
+    """
+    
+    try:
+        if not os.path.exists(path):
+            return f"Error: Project file '{path}' does not exist."
+
+        valid_extensions = [".qgs", ".qgz"]
+        file_ext = os.path.splitext(path.lower())[1]
+
+        if file_ext not in valid_extensions:
+            return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
+
+        # load project on main thread via callback
+        result = load_project_on_main_thread(path)
+        
+        if result.get("error"):
+            return f"Error: {result['error']}"
+        elif result.get("success"):
+            return f"Success: Project loaded from '{path}'"
+        else:
+            return f"Error: Unknown error loading project from '{path}'"
+
+    except Exception as e:
+        return f"Error loading project: {str(e)}"
+
+
+@tool
 def delete_existing_project(path: str) -> str:
     """
     Delete an existing QGIS project file from disk.
@@ -424,6 +464,7 @@ __all__ = [
     "get_layer_columns",
     "zoom_to_layer",
     "remove_layer",
-    "new_qgis_project",
+    "create_new_qgis_project",
+    "load_qgis_project",
     "delete_existing_project",
 ]

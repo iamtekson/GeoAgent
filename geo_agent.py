@@ -29,6 +29,8 @@ from qgis.PyQt.QtCore import (
     QThread,
     QMetaObject,
     QTimer,
+    Q_ARG,
+    QEventLoop,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
@@ -54,6 +56,10 @@ from .utils.canvas_refresh import (
     RefreshDispatcher,
     set_qgis_interface,
     set_refresh_callback,
+)
+from .utils.project_loader import (
+    ProjectLoadDispatcher,
+    set_project_load_callback,
 )
 from typing import Optional
 import importlib
@@ -82,6 +88,9 @@ class GeoAgent:
 
         # Dispatcher for main-thread canvas refresh
         self._refresh_dispatcher = RefreshDispatcher(self.iface)
+        
+        # Dispatcher for main-thread project loading
+        self._project_load_dispatcher = ProjectLoadDispatcher(self.iface)
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -147,6 +156,40 @@ class GeoAgent:
                 QTimer.singleShot(0, self._refresh_dispatcher.doRefresh)
         except Exception as e:
             self._log_error("refresh_callback", e)
+    
+    def _project_load_callback(self, path):
+        """Thread-safe project load callback using signals."""
+        try:
+            def on_result_ready():
+                loop.quit()
+            
+            # connect signal to quit when result is ready
+            self._project_load_dispatcher.result_ready.connect(on_result_ready)
+            
+            # queue the load operation on the main thread
+            QMetaObject.invokeMethod(
+                self._project_load_dispatcher,
+                "doLoadProject",
+                Qt.QueuedConnection,
+                Q_ARG(str, path),
+            )
+            
+            # wait for the dispatcher to signal completion
+            loop = QEventLoop()
+            
+            # max wait 30 seconds timeout
+            QTimer.singleShot(30000, loop.quit)
+            loop.exec_()
+            
+            # disconnect signal to avoid memory leaks
+            self._project_load_dispatcher.result_ready.disconnect(on_result_ready)
+            
+            # return the result that was set by the dispatcher
+            return self._project_load_dispatcher.result
+        except Exception as e:
+            error_msg = f"_project_load_callback error: {e}"
+            QgsMessageLog.logMessage(error_msg, "GeoAgent", level=Qgis.Warning)
+            return {"success": False, "error": error_msg}
 
     def _ensure_dependencies_installed(self):
         """Ensure required Python packages are installed via pyproject.toml."""
@@ -420,6 +463,9 @@ class GeoAgent:
 
             # Register thread-safe refresh callback method
             set_refresh_callback(self._refresh_callback)
+            
+            # Register thread-safe project load callback method
+            set_project_load_callback(self._project_load_callback)
         except Exception as e:
             self._log_error("initialize_tools_interface", e)
 
