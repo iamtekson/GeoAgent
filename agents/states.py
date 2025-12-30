@@ -2,10 +2,82 @@
 """
 State definitions for the GeoAgent LangGraph application.
 """
-from typing import Annotated, Sequence, Optional, Dict, Any
+from typing import Annotated, Sequence, Optional, Dict, Any, List
 from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+
+
+class RouteState(TypedDict, total=False):
+    """Minimal state needed during routing."""
+
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    user_query: str
+    is_processing_task: bool
+    error_message: Optional[str]
+
+
+class DiscoveryState(RouteState, total=False):
+    """State after algorithm discovery."""
+
+    algorithm_candidates: Optional[list]
+
+
+class SelectionState(DiscoveryState, total=False):
+    """State after algorithm selection."""
+
+    selected_algorithm: Optional[str]
+
+
+class ParameterState(SelectionState, total=False):
+    """State after parameter inspection/gathering."""
+
+    algorithm_metadata: Optional[Dict[str, Any]]
+    gathered_parameters: Optional[Dict[str, Any]]
+
+
+class ExecutionState(ParameterState, total=False):
+    """State after execution."""
+
+    execution_result: Optional[Dict[str, Any]]
+
+
+class SelectedAlgorithmState(TypedDict, total=False):
+    algorithm_id: str
+    algorithm_name: str
+    reasoning: str
+    confidence: float
+
+
+class GatheredParametersState(TypedDict, total=False):
+    parameters: Dict[str, Any]
+    inferred_fields: List[str]
+    notes: str
+
+
+class ProcessingState(TypedDict, total=False):
+    """
+    Extended state for geoprocessing workflows.
+    Tracks the processing pipeline: user query → algorithm selection → parameter gathering → execution.
+    Inherits messages; adds processing-specific metadata.
+    """
+
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    # Processing workflow metadata
+    user_query: str  # Original user query
+    is_processing_task: bool  # Whether this is a processing task
+    algorithm_candidates: Optional[
+        list
+    ]  # List of matching algorithms from find_processing_algorithm
+    selected_algorithm: Optional[str]  # The chosen algorithm id (e.g., 'native:buffer')
+    algorithm_metadata: Optional[
+        Dict[str, Any]
+    ]  # Full parameter/output definitions from get_algorithm_parameters
+    gathered_parameters: Optional[
+        Dict[str, Any]
+    ]  # Final parameters to pass to execute_processing
+    execution_result: Optional[Dict[str, Any]]  # Result from execute_processing
+    error_message: Optional[str]  # Error details if processing fails
 
 
 class AgentState(TypedDict):
@@ -17,3 +89,16 @@ class AgentState(TypedDict):
     """
 
     messages: Annotated[Sequence[BaseMessage], add_messages]
+
+
+__all__ = [
+    "RouteState",
+    "DiscoveryState",
+    "SelectionState",
+    "ParameterState",
+    "ExecutionState",
+    "SelectedAlgorithmState",
+    "GatheredParametersState",
+    "ProcessingState",
+    "AgentState",
+]

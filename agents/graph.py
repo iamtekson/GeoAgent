@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-General mode agent for conversational GIS assistance and mode routing.
+Graph builder for GeoAgent: routes between general conversational mode and geoprocessing workflows.
 """
-from typing import List
+from typing import List, Any
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
@@ -11,9 +11,10 @@ from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
 from ..tools import TOOLS
 
 from .states import AgentState
+from .processing import build_processing_graph, invoke_processing_app
 
 
-def build_graph_app(llm) -> any:
+def build_graph_app(llm) -> Any:
     """Build and compile a LangGraph app for general mode with tools and memory."""
 
     try:
@@ -58,22 +59,23 @@ def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
     return result["messages"][-1]
 
 
-def build_unified_graph(llm, mode: str = "general") -> any:
+def build_unified_graph(llm, mode: str = "general") -> Any:
     """
-    Build a unified graph that routes to either general or processing mode.
+    Build a mode-specific graph: either general (conversational + tools) or processing (geoprocessing workflow).
 
     Args:
         llm: The language model instance
-        mode: Either 'general' or 'processing'
+        mode: Either 'general' (default) for conversational mode or 'processing' for geoprocessing workflow
 
     Returns:
-        Compiled LangGraph application
+        Compiled LangGraph application for the specified mode
     """
     if mode == "processing":
-        # TODO: Implement processing graph build and return here
-        return build_graph_app(llm)
-
+        # Build dedicated processing workflow with ordered chain:
+        # route → find_algorithms → select → inspect → gather_params → execute → finalize
+        return build_processing_graph(llm)
     else:
+        # Build general mode with tool binding and multi-turn reasoning
         return build_graph_app(llm)
 
 
@@ -82,7 +84,7 @@ async def invoke_app_async(
 ) -> AIMessage:
     """
     Invoke the compiled app asynchronously and return the last AI message.
-    
+
     Uses app.ainvoke() if available (LangGraph 0.2.0+), otherwise falls back to invoke().
     """
     state = {"messages": messages}
@@ -93,9 +95,7 @@ async def invoke_app_async(
         )
     except (AttributeError, NotImplementedError):
         # Fallback to sync invoke if async not available
-        result = app.invoke(
-            state, config={"configurable": {"thread_id": thread_id}}
-        )
+        result = app.invoke(state, config={"configurable": {"thread_id": thread_id}})
     # result["messages"] is the full list; return the last AI message
     return result["messages"][-1]
 
@@ -105,4 +105,5 @@ __all__ = [
     "invoke_app",
     "invoke_app_async",
     "build_unified_graph",
+    "invoke_processing_app",
 ]
