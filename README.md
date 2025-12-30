@@ -18,6 +18,7 @@ GeoAgent is a QGIS plugin that integrates Large Language Models (LLMs) to enable
 - [📄 License](#-license)
 - [👥 Authors](#-authors)
 - [🙏 Acknowledgments](#-acknowledgments)
+- [References](#-references)
 - [📞 Support](#-support)
 - [🔗 Links](#-links)
 
@@ -488,6 +489,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - LangChain for the AI framework
 - Ollama, OpenAI, and Google for LLM providers
 - The open-source GIS community
+
+## References
+
+- [QChatGPT Plugin](https://github.com/KIOS-Research/QChatGPT) by [@KIOS-Research](https://github.com/KIOS-Research)
+- [GeoAI Plugin](https://github.com/opengeos/geoai/tree/main/qgis_plugin) by [@giswqs](https://github.com/giswqs)
+- [QGIS MCP Plugin](https://github.com/jjsantos01/qgis_mcp) by [@jjsantos01](https://github.com/jjsantos01)
 
 ## 📞 Support
 
