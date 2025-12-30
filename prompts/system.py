@@ -33,18 +33,13 @@ Given a user query, decide:
 1. Is this a QGIS geoprocessing task (algorithms like buffer, clip, dissolve, raster statistics)?
 2. Or is it a general question / data inquiry / visualization request?
 
-Respond with ONLY valid JSON:
-{
-  "is_processing_task": true/false,
-  "reason": "brief explanation"
-}
-
 Examples:
-- "buffer the layer by 50m" → true (geometric operation)
-- "what layers are loaded?" → false (data inquiry)
-- "calculate raster statistics" → true (raster analysis)
-- "explain buffer operations" → false (general question)
-"""
+- "buffer the layer by 50m" → is_processing_task=true (geometric operation)
+- "what layers are loaded?" → is_processing_task=false (data inquiry)
+- "calculate raster statistics" → is_processing_task=true (raster analysis)
+- "explain buffer operations" → is_processing_task=false (general question)
+
+Provide your decision with a brief reason."""
 
 PROCESSING_ALGORITHM_SELECTION_PROMPT = """You are a QGIS processing algorithm selector.
 
@@ -54,19 +49,16 @@ Given:
 
 Select the BEST algorithm that matches the user intent.
 
-Respond with ONLY valid JSON:
-{
-  "algorithm_id": "algorithm_id",
-  "algorithm_name": "Algorithm Name",
-  "reasoning": "why this algorithm matches the query",
-  "confidence": 0.0-1.0
-}
-
 Guidelines:
 - Prefer 'native' provider algorithms (more stable)
 - Match verbs in query to algorithm names
 - Consider common synonyms (e.g., "merge" = "dissolve", "combine" = "union")
-"""
+
+Provide:
+- algorithm_id: The selected algorithm ID
+- algorithm_name: Human-readable name
+- reasoning: Why this algorithm matches the query
+- confidence: Score between 0.0 and 1.0"""
 
 PROCESSING_PARAMETER_GATHERING_PROMPT = """# SYSTEM ROLE
 You are a QGIS Parameter Extractor. Your goal is to map a User Query to specific Algorithm Definitions.
@@ -87,14 +79,8 @@ You are a QGIS Parameter Extractor. Your goal is to map a User Query to specific
 3. **Types:** - Numbers: Extract raw value. Always use universal units (e.g., "10m" -> 10, "5km" -> 5000).
    - Layers: Use exact names from "Layers".
    - Enums: Match query to the closest valid `options`.
-4. **Format:** Return ONLY a JSON object. No markdown blocks, no intro/outro text.
 
-# RESPONSE SCHEMA
-{
-  "parameters": {
-    "PARAM_NAME_1": "value_1",
-    "PARAM_NAME_2": "value_2",
-    ...
-  },
-  "notes": "Brief explanation of inferred values"
-}"""
+# OUTPUT
+Provide:
+- parameters: Dictionary of parameter names to values
+- notes: Brief explanation of inferred values"""

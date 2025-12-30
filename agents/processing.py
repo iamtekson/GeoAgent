@@ -46,9 +46,12 @@ from .states import (
     SelectionState,
     ParameterState,
     ExecutionState,
-    SelectedAlgorithmState,
-    GatheredParametersState,
     ProcessingState,
+)
+from .schemas import (
+    RouteDecision,
+    AlgorithmSelection,
+    ParameterGathering,
 )
 from ..config.settings import SHOW_DEBUG_LOGS
 from ..logger.processing_logger import get_processing_logger
@@ -93,26 +96,30 @@ def build_processing_graph(llm) -> Any:
 
         _logger.debug(f"User query: {user_query}")
 
-        # Call routing LLM
+        # Call routing LLM with structured output
         messages = [
             SystemMessage(content=PROCESSING_ROUTING_PROMPT),
             HumanMessage(content=f"User query: {user_query}"),
         ]
-        response = llm.invoke(messages)
-
-        _logger.debug(f"LLM response: {response.content}")
 
         try:
-            # Parse JSON from LLM response
-            result = json.loads(response.content)
-            is_processing = result.get("is_processing_task", False)
-            reason = result.get("reason", "N/A")
+            # Use structured output to ensure consistent response format
+            structured_llm = llm.with_structured_output(RouteDecision)
+            result: RouteDecision = structured_llm.invoke(messages)
+
+            is_processing = result.is_processing_task
+            reason = result.reason
+            _logger.debug(
+                f"LLM structured response: is_processing={is_processing}, reason={reason}"
+            )
             _logger.info(
                 f"Routing decision: is_processing_task={is_processing}, reason={reason}"
             )
-        except (json.JSONDecodeError, AttributeError):
-            # If LLM doesn't return valid JSON, heuristic check for keywords
-            _logger.warning("LLM response was not valid JSON, using heuristic fallback")
+        except Exception as e:
+            # If structured output fails, use heuristic fallback
+            _logger.warning(
+                f"Structured output failed ({str(e)}), using heuristic fallback"
+            )
             query_lower = user_query.lower()
             processing_keywords = [
                 "buffer",
@@ -221,13 +228,13 @@ def build_processing_graph(llm) -> Any:
         ]
 
         try:
-            # Use structured output to force LLM to return SelectedAlgorithmState
-            structured_llm = llm.with_structured_output(SelectedAlgorithmState)
-            result: SelectedAlgorithmState = structured_llm.invoke(messages)
+            # Use structured output to force LLM to return AlgorithmSelection
+            structured_llm = llm.with_structured_output(AlgorithmSelection)
+            result: AlgorithmSelection = structured_llm.invoke(messages)
 
-            selected_alg = result.get("algorithm_id")
-            confidence = result.get("confidence", 0.0)
-            reasoning = result.get("reasoning", "N/A")
+            selected_alg = result.algorithm_id
+            confidence = result.confidence
+            reasoning = result.reasoning
 
             _logger.debug(
                 f"LLM response (structured): algorithm_id={selected_alg}, confidence={confidence}, reasoning={reasoning}"
@@ -353,13 +360,12 @@ def build_processing_graph(llm) -> Any:
         ]
 
         try:
-            # Use structured output to force LLM to return GatheredParametersState
-            structured_llm = llm.with_structured_output(GatheredParametersState)
-            gathered: GatheredParametersState = structured_llm.invoke(messages)
+            # Use structured output to force LLM to return ParameterGathering
+            structured_llm = llm.with_structured_output(ParameterGathering)
+            gathered: ParameterGathering = structured_llm.invoke(messages)
 
-            parameters = gathered.get("parameters", {})
-            inferred_fields = gathered.get("inferred_fields", [])
-            notes = gathered.get("notes", "")
+            parameters = gathered.parameters
+            notes = gathered.notes
 
             # Ensure OUTPUT parameter is set
             if "OUTPUT" not in parameters:
@@ -393,8 +399,6 @@ def build_processing_graph(llm) -> Any:
 
             if notes:
                 _logger.debug(f"Notes: {notes}")
-            if inferred_fields:
-                _logger.debug(f"Inferred fields: {inferred_fields}")
 
             # Validate that required parameters are present
             required_params = [

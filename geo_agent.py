@@ -748,19 +748,15 @@ class GeoAgent:
             # Prepare messages
             SystemMessage, HumanMessage = self._get_message_classes()
 
-            # On first turn, seed the thread with system prompt
+            # Build messages for this turn; include system prompt only on the first turn
             if not self._has_started_thread:
-                # Initialize thread with system message
-                init_state = {
-                    "messages": [SystemMessage(content=GENERAL_SYSTEM_PROMPT)]
-                }
-                self.app.invoke(
-                    init_state, config={"configurable": {"thread_id": self.thread_id}}
-                )
+                msgs = [
+                    SystemMessage(content=GENERAL_SYSTEM_PROMPT),
+                    HumanMessage(content=question),
+                ]
                 self._has_started_thread = True
-
-            # Now invoke with just the new user message; graph will load history from checkpoint
-            msgs = [HumanMessage(content=question)]
+            else:
+                msgs = [HumanMessage(content=question)]
             _, _, invoke_app_async = self._get_agents()
 
             # Disable send button to prevent multiple submissions
@@ -806,9 +802,25 @@ class GeoAgent:
     def _on_invoke_result(self, last_msg):
         """Callback when worker thread completes successfully."""
         try:
-            response_text = (
-                last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-            )
+            # Extract content and ensure it's a string
+            if hasattr(last_msg, "content"):
+                content = last_msg.content
+                # Handle list content (e.g., from structured responses)
+                if isinstance(content, list):
+                    # Join list items or extract text from content blocks
+                    response_text = " ".join(
+                        (
+                            item.get("text", str(item))
+                            if isinstance(item, dict)
+                            else str(item)
+                        )
+                        for item in content
+                    )
+                else:
+                    response_text = str(content)
+            else:
+                response_text = str(last_msg)
+
             # Display response
             self._display_ai_response(response_text)
             # Clear input and scroll to bottom
@@ -948,7 +960,7 @@ class GeoAgent:
                 client_kwargs["model"] = (
                     google_model_name
                     if google_model_name
-                    else model_config.get("default_model", "gemini-pro")
+                    else model_config.get("default_model", "gemini-3-pro-preview")
                 )
 
             # Validate Ollama availability/model
@@ -1040,6 +1052,10 @@ class GeoAgent:
 
     def _display_ai_response(self, response: str) -> None:
         """Display AI response in the chat area."""
+        # Ensure response is a string (safety check)
+        if not isinstance(response, str):
+            response = str(response)
+
         # Get cursor and remove the processing indicator line
         cursor = self.dlg.llm_response.textCursor()
         cursor.movePosition(cursor.End)
