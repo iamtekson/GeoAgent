@@ -6,7 +6,8 @@ from .io import (
     remove_layer,
     create_new_qgis_project,
     load_qgis_project,
-    delete_existing_project
+    delete_existing_project,
+    save_qgis_project
 )
 from .commons import now_utc
 from .filters import (
@@ -35,6 +36,7 @@ TOOLS = {
         remove_layer,
         create_new_qgis_project,
         load_qgis_project,
+        save_qgis_project,
         delete_existing_project,
         # Filtering & Selection
         select_by_attribute,

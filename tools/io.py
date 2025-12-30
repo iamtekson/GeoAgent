@@ -385,6 +385,59 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
 
 
 @tool
+def save_qgis_project(path: Optional[str] = None) -> str:
+    """
+    Save the current QGIS project to a file.
+
+    Args:
+        path: Optional file path to save the project. If not provided, saves to the current project location.
+              Can be '.qgs' or '.qgz' format.
+
+    Returns:
+        Success message with project path or error message.
+
+    Examples:
+        - save_qgis_project('/geoagent/my_project.qgs') 
+        - save_qgis_project('D:/geoagent/project_backup.qgz')  
+    """
+    try:
+        project = QgsProject.instance()
+
+        # uses current project file if no path is provided
+        if not path:
+            path = project.fileName()
+            if not path:
+                return "Error: No file path specified and project has not been saved before. Please provide a file path."
+        else:
+            # convert relative path to absolute path
+            path = os.path.abspath(path)
+
+        # validate file extensions
+        valid_extensions = [".qgs", ".qgz"]
+        file_ext = os.path.splitext(path.lower())[1]
+        if file_ext not in valid_extensions:
+            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
+
+        project_dir = os.path.dirname(path)
+        if project_dir and not os.path.exists(project_dir):
+            os.makedirs(project_dir)
+
+        # update project file path if saving to a new location
+        if path != project.fileName():
+            project.setFileName(path)
+
+        # saves the project
+        success = project.write(path)
+
+        if success:
+            return f"Success: Project saved to '{path}'"
+        else:
+            return f"Error: Failed to save project to '{path}'. Check file permissions and path validity."
+
+    except Exception as e:
+        return f"Error saving project: {str(e)}"
+
+@tool
 def load_qgis_project(path: str) -> str:
     """
     Loads an existing QGIS project file.
@@ -465,6 +518,7 @@ __all__ = [
     "zoom_to_layer",
     "remove_layer",
     "create_new_qgis_project",
+    "save_qgis_project",
     "load_qgis_project",
     "delete_existing_project",
 ]
