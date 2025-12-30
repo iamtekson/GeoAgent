@@ -5,6 +5,9 @@ LLM client factory and utilities for creating chat models.
 import importlib
 import requests
 from typing import Optional
+from ..logger.processing_logger import get_processing_logger
+
+_logger = get_processing_logger()
 
 
 def create_llm(provider: str, api_key: Optional[str] = None, **kwargs):
@@ -19,6 +22,7 @@ def create_llm(provider: str, api_key: Optional[str] = None, **kwargs):
     Returns:
         Chat model instance
     """
+    _logger.debug(f"Creating LLM for provider: {provider} with kwargs: {kwargs}")
     if provider == "openai":
         # Lazy import to avoid dependency issues
         openai_mod = importlib.import_module("langchain_openai")
@@ -38,7 +42,7 @@ def create_llm(provider: str, api_key: Optional[str] = None, **kwargs):
 
         return ChatGoogleGenerativeAI(
             google_api_key=api_key,
-            model=kwargs.get("model", "gemini-pro"),
+            model=kwargs.get("model", "gemini-3-pro-preview"),
             temperature=kwargs.get("temperature", 0.7),
             max_output_tokens=kwargs.get("max_tokens"),
         )

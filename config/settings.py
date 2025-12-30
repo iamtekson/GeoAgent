@@ -13,6 +13,10 @@ API_KEY_FILE = os.path.join(PLUGIN_DIR, "api_key.txt")
 # debug
 DEBUG_MODE = False
 
+# Logging configuration
+SHOW_DEBUG_LOGS = True  # Whether to show DEBUG level messages in the UI
+MAX_LOG_LINES = 1000  # Maximum number of lines to display in the log viewer
+
 # Model configurations
 SUPPORTED_MODELS = {
     "Ollama": {
@@ -28,7 +32,7 @@ SUPPORTED_MODELS = {
     },
     "Gemini": {
         "type": "google",
-        "default_model": "gemini-pro",
+        "default_model": "gemini-3-pro-preview",
         "requires_api_key": True,
     },
 }

@@ -35,7 +35,7 @@ from qgis.PyQt.QtCore import (
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
 from qgis.PyQt.QtGui import QFont
-from qgis.core import Qgis, QgsMessageLog
+from qgis.core import Qgis, QgsMessageLog, QgsApplication
 
 # Import the code for the dialog
 from .dialogs.geo_agent_dialog import GeoAgentDialog
@@ -47,7 +47,9 @@ from .config.settings import (
     DEFAULT_MODEL,
     DEBUG_MODE,
     QGIS_MESSAGE_DURATION,
+    SHOW_DEBUG_LOGS,
 )
+from .logger.logger import UILogHandler
 from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
 from .llm.worker import LLMWorker
 from langchain_core.messages import AIMessage
@@ -70,6 +72,7 @@ import re
 import os
 import os.path
 import traceback
+import logging
 
 
 class GeoAgent:
@@ -88,7 +91,7 @@ class GeoAgent:
 
         # Dispatcher for main-thread canvas refresh
         self._refresh_dispatcher = RefreshDispatcher(self.iface)
-        
+
         # Dispatcher for main-thread project loading
         self._project_load_dispatcher = ProjectLoadDispatcher(self.iface)
 
@@ -135,6 +138,113 @@ class GeoAgent:
                 f.write(details + "\n\n")
             # Also send to QGIS log panel
             QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
+            # Mirror to UI logger if available
+            try:
+                if hasattr(self, "_ui_logger"):
+                    self._ui_logger.error(f"[{context}] {exc}\n{details}")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _setup_ui_logging(self):
+        """Wire all logging sources to the GeoAgent Logs tab."""
+        ui_handler = None
+        try:
+            if hasattr(self, "dlg") and hasattr(self.dlg, "get_ui_log_handler"):
+                ui_handler = self.dlg.get_ui_log_handler()
+        except Exception:
+            ui_handler = None
+
+        if not ui_handler or not isinstance(ui_handler, UILogHandler):
+            return
+
+        self._ui_log_handler = ui_handler
+
+        # Configure UI logger
+        level = logging.DEBUG if SHOW_DEBUG_LOGS else logging.INFO
+        ui_handler.setLevel(level)
+        try:
+            ui_handler.set_show_debug(SHOW_DEBUG_LOGS)
+        except Exception:
+            pass
+
+        self._ui_logger = logging.getLogger("GeoAgent.UI")
+        self._ui_logger.setLevel(level)
+        self._ui_logger.propagate = False
+
+        # Avoid duplicate handlers on reload
+        existing = [h for h in self._ui_logger.handlers if h is ui_handler]
+        if not existing:
+            # Clear stale handlers to prevent duplicate console outputs
+            self._ui_logger.handlers.clear()
+
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(level)
+            console_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
+            )
+            self._ui_logger.addHandler(console_handler)
+            self._ui_logger.addHandler(ui_handler)
+
+        # Plugin-level logger for general events; let it propagate to root
+        self._plugin_logger = logging.getLogger("GeoAgent")
+        self._plugin_logger.setLevel(level)
+        self._plugin_logger.propagate = True
+        # Do not attach ui_handler here to avoid duplication; root will handle it
+
+        # Attach handler to root logger so any logging call is mirrored to UI once
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+        if ui_handler not in root_logger.handlers:
+            root_logger.addHandler(ui_handler)
+
+        # Attach processing logger to the same UI handler
+        try:
+            from .logger.processing_logger import set_processing_ui_log_handler
+
+            set_processing_ui_log_handler(ui_handler)
+        except Exception:
+            pass
+
+        # Connect QGIS message log stream
+        self._connect_qgis_message_log()
+
+        try:
+            self._plugin_logger.info("GeoAgent UI logging initialized")
+        except Exception:
+            pass
+
+    def _connect_qgis_message_log(self):
+        """Forward QgsMessageLog messages to the UI logger."""
+        try:
+            if getattr(self, "_message_log_connected", False):
+                return
+            msg_log = QgsApplication.messageLog()
+            if msg_log is None:
+                return
+            msg_log.messageReceived.connect(self._on_qgis_message)
+            self._message_log_connected = True
+            self._qgis_msg_log = msg_log
+        except Exception:
+            pass
+
+    def _on_qgis_message(self, message, tag, level):
+        """Slot to mirror QGIS messages into the UI log."""
+        try:
+            level_map = {
+                getattr(Qgis, "Info", 0): logging.INFO,
+                getattr(Qgis, "Success", 0): logging.INFO,
+                getattr(Qgis, "Warning", 0): logging.WARNING,
+                getattr(Qgis, "Critical", 0): logging.ERROR,
+                getattr(Qgis, "Fatal", 0): logging.CRITICAL,
+            }
+            log_level = level_map.get(level, logging.INFO)
+            if hasattr(self, "_ui_logger"):
+                self._ui_logger.log(log_level, f"[{tag}] {message}")
         except Exception:
             pass
 
@@ -156,16 +266,17 @@ class GeoAgent:
                 QTimer.singleShot(0, self._refresh_dispatcher.doRefresh)
         except Exception as e:
             self._log_error("refresh_callback", e)
-    
+
     def _project_load_callback(self, path):
         """Thread-safe project load callback using signals."""
         try:
+
             def on_result_ready():
                 loop.quit()
-            
+
             # connect signal to quit when result is ready
             self._project_load_dispatcher.result_ready.connect(on_result_ready)
-            
+
             # queue the load operation on the main thread
             QMetaObject.invokeMethod(
                 self._project_load_dispatcher,
@@ -173,17 +284,17 @@ class GeoAgent:
                 Qt.QueuedConnection,
                 Q_ARG(str, path),
             )
-            
+
             # wait for the dispatcher to signal completion
             loop = QEventLoop()
-            
+
             # max wait 30 seconds timeout
             QTimer.singleShot(30000, loop.quit)
             loop.exec_()
-            
+
             # disconnect signal to avoid memory leaks
             self._project_load_dispatcher.result_ready.disconnect(on_result_ready)
-            
+
             # return the result that was set by the dispatcher
             return self._project_load_dispatcher.result
         except Exception as e:
@@ -451,6 +562,14 @@ class GeoAgent:
         if hasattr(self, "dlg"):
             self.iface.removeDockWidget(self.dlg)
 
+        # Disconnect QGIS message log signal on unload
+        if getattr(self, "_message_log_connected", False):
+            try:
+                if hasattr(self, "_qgis_msg_log"):
+                    self._qgis_msg_log.messageReceived.disconnect(self._on_qgis_message)
+            except Exception:
+                pass
+
     def run(self):
         """Run method that performs all the real work"""
         # Ensure dependencies before loading graph or message classes
@@ -463,7 +582,7 @@ class GeoAgent:
 
             # Register thread-safe refresh callback method
             set_refresh_callback(self._refresh_callback)
-            
+
             # Register thread-safe project load callback method
             set_project_load_callback(self._project_load_callback)
         except Exception as e:
@@ -525,6 +644,14 @@ class GeoAgent:
                     pass
                 self.dlg.clear_ans.clicked.connect(self.clear_chat)
 
+            # Setup unified UI logging once the dialog exists
+            try:
+                self._setup_ui_logging()
+            except Exception as e:
+                QgsMessageLog.logMessage(
+                    f"Failed to setup UI logging: {e}", "GeoAgent", level=Qgis.Warning
+                )
+
         # show and focus the dock widget
         self.dlg.show()
         self.dlg.raise_()
@@ -533,6 +660,12 @@ class GeoAgent:
         try:
             # Ask for more vertical space in bottom dock area
             self.iface.mainWindow().resizeDocks([self.dlg], [300], Qt.Vertical)
+        except Exception:
+            pass
+
+        # Ensure UI logging stays connected on subsequent runs
+        try:
+            self._setup_ui_logging()
         except Exception:
             pass
 
@@ -615,19 +748,15 @@ class GeoAgent:
             # Prepare messages
             SystemMessage, HumanMessage = self._get_message_classes()
 
-            # On first turn, seed the thread with system prompt
+            # Build messages for this turn; include system prompt only on the first turn
             if not self._has_started_thread:
-                # Initialize thread with system message
-                init_state = {
-                    "messages": [SystemMessage(content=GENERAL_SYSTEM_PROMPT)]
-                }
-                self.app.invoke(
-                    init_state, config={"configurable": {"thread_id": self.thread_id}}
-                )
+                msgs = [
+                    SystemMessage(content=GENERAL_SYSTEM_PROMPT),
+                    HumanMessage(content=question),
+                ]
                 self._has_started_thread = True
-
-            # Now invoke with just the new user message; graph will load history from checkpoint
-            msgs = [HumanMessage(content=question)]
+            else:
+                msgs = [HumanMessage(content=question)]
             _, _, invoke_app_async = self._get_agents()
 
             # Disable send button to prevent multiple submissions
@@ -673,9 +802,25 @@ class GeoAgent:
     def _on_invoke_result(self, last_msg):
         """Callback when worker thread completes successfully."""
         try:
-            response_text = (
-                last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-            )
+            # Extract content and ensure it's a string
+            if hasattr(last_msg, "content"):
+                content = last_msg.content
+                # Handle list content (e.g., from structured responses)
+                if isinstance(content, list):
+                    # Join list items or extract text from content blocks
+                    response_text = " ".join(
+                        (
+                            item.get("text", str(item))
+                            if isinstance(item, dict)
+                            else str(item)
+                        )
+                        for item in content
+                    )
+                else:
+                    response_text = str(content)
+            else:
+                response_text = str(last_msg)
+
             # Display response
             self._display_ai_response(response_text)
             # Clear input and scroll to bottom
@@ -815,7 +960,7 @@ class GeoAgent:
                 client_kwargs["model"] = (
                     google_model_name
                     if google_model_name
-                    else model_config.get("default_model", "gemini-pro")
+                    else model_config.get("default_model", "gemini-3-pro-preview")
                 )
 
             # Validate Ollama availability/model
@@ -907,6 +1052,10 @@ class GeoAgent:
 
     def _display_ai_response(self, response: str) -> None:
         """Display AI response in the chat area."""
+        # Ensure response is a string (safety check)
+        if not isinstance(response, str):
+            response = str(response)
+
         # Get cursor and remove the processing indicator line
         cursor = self.dlg.llm_response.textCursor()
         cursor.movePosition(cursor.End)
