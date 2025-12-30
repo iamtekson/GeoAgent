@@ -32,7 +32,7 @@ SUPPORTED_MODELS = {
     },
     "Gemini": {
         "type": "google",
-        "default_model": "gemini-3-pro-preview",
+        "default_model": "gemini-3-flash-preview",
         "requires_api_key": True,
     },
 }
