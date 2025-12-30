@@ -53,6 +53,13 @@ from .states import (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────────────────────
+# Maximum number of LLM->tools->LLM cycles to prevent infinite loops
+MAX_TOOL_ITERATIONS = 10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Logging Setup
 # ─────────────────────────────────────────────────────────────────────────────
 def _setup_logger(log_file: Optional[str] = None) -> logging.Logger:
@@ -595,7 +602,9 @@ def build_processing_graph(llm) -> any:
                     result = f"Error: Tool '{call['name']}' is not available."
                 else:
                     result = tool_inst.invoke(call["args"])
-                tool_messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+                # Ensure result is a string for ToolMessage
+                content = result if isinstance(result, str) else str(result)
+                tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
             except Exception as e:
                 tool_messages.append(
                     ToolMessage(
@@ -672,7 +681,7 @@ def build_processing_graph(llm) -> any:
 
     return graph.compile(
         checkpointer=MemorySaver(),
-        recursion_limit=10,  # Prevent infinite loops
+        recursion_limit=MAX_TOOL_ITERATIONS,
     )
 
 
