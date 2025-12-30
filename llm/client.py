@@ -42,7 +42,7 @@ def create_llm(provider: str, api_key: Optional[str] = None, **kwargs):
 
         return ChatGoogleGenerativeAI(
             google_api_key=api_key,
-            model=kwargs.get("model", "gemini-3-pro-preview"),
+            model=kwargs.get("model", "gemini-3-flash-preview"),
             temperature=kwargs.get("temperature", 0.7),
             max_output_tokens=kwargs.get("max_tokens"),
         )

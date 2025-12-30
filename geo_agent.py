@@ -960,7 +960,7 @@ class GeoAgent:
                 client_kwargs["model"] = (
                     google_model_name
                     if google_model_name
-                    else model_config.get("default_model", "gemini-3-pro-preview")
+                    else model_config.get("default_model", "gemini-3-flash-preview")
                 )
 
             # Validate Ollama availability/model
