@@ -119,7 +119,7 @@ def set_processing_log_file(log_file: str) -> None:
     _logger = _setup_logger(log_file)
 
 
-def build_processing_graph(llm) -> any:
+def build_processing_graph(llm) -> Any:
     """
     Build and compile a LangGraph processing workflow.
 
@@ -694,5 +694,4 @@ __all__ = [
     "build_processing_graph",
     "invoke_processing_app",
     "set_processing_log_file",
-    "_setup_logger",
 ]

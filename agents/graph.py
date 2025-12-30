@@ -2,19 +2,19 @@
 """
 Graph builder for GeoAgent: routes between general conversational mode and geoprocessing workflows.
 """
-from typing import List
+from typing import List, Any
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import BaseMessage, AIMessage, ToolMessage, HumanMessage
+from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
 from ..tools import TOOLS
 
 from .states import AgentState
 from .processing import build_processing_graph, invoke_processing_app
 
 
-def build_graph_app(llm) -> any:
+def build_graph_app(llm) -> Any:
     """Build and compile a LangGraph app for general mode with tools and memory."""
 
     try:
@@ -59,7 +59,7 @@ def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
     return result["messages"][-1]
 
 
-def build_unified_graph(llm, mode: str = "general") -> any:
+def build_unified_graph(llm, mode: str = "general") -> Any:
     """
     Build a mode-specific graph: either general (conversational + tools) or processing (geoprocessing workflow).
 

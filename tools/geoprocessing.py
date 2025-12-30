@@ -63,7 +63,7 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                 layer_added = True
             elif isinstance(output_layer_obj, str):
                 # It's a path; let QGIS handle the loading via iface or auto-detection
-                from .io import get_qgis_interface
+                from ..utils.canvas_refresh import get_qgis_interface
 
                 iface = get_qgis_interface()
                 # addVectorLayer or addRasterLayer are safer than manual QgsVectorLayer calls
@@ -253,7 +253,10 @@ def find_processing_algorithm(
         limit: Max number of matches to return.
 
     Returns:
-        Dict with matches list for LLM to choose from.
+        Dict with following keys:
+        - best: id of best matching algorithm (first in list) or None
+        - matches: list of matching algorithms with {id, name, provider}
+        - query: original query string
     """
     try:
         search_term = query.lower().strip()
@@ -268,8 +271,7 @@ def find_processing_algorithm(
         return {
             "best": items[0]["id"] if items else None,
             "matches": items,
-            "query": search_term,
-            "search_term": search_term,
+            "query": query,
         }
     except Exception as e:
         raise Exception(f"Find algorithm error: {str(e)}")
