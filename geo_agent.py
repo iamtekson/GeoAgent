@@ -624,11 +624,11 @@ class GeoAgent:
             self.dlg.send_chat.setText("Send")
             self.dlg.question.setEnabled(True)
 
-    def _on_invoke_result(self, ai_msg: AIMessage):
+    def _on_invoke_result(self, last_msg):
         """Callback when worker thread completes successfully."""
         try:
             response_text = (
-                ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+                last_msg.content if hasattr(last_msg, "content") else str(last_msg)
             )
             # Display response
             self._display_ai_response(response_text)
@@ -870,10 +870,8 @@ class GeoAgent:
         # Remove the extra newline if present
         cursor.deletePreviousChar()
 
-        # Append agent response
-        formatted_response = response.replace("\n", "<br>")
-        self.dlg.llm_response.append("\n<b>Agent:</b> ")
-        self.dlg.llm_response.insertHtml(formatted_response)
+        # Append agent response - use append() for plain text to avoid HTML entity issues
+        self.dlg.llm_response.append("\n<b>Agent:</b> " + response)
         self.dlg.llm_response.append("\n" + "." * 40)
 
         # Re-enable buttons only after response is displayed
