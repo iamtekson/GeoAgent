@@ -51,11 +51,7 @@ from .states import (
     ProcessingState,
 )
 from ..config.settings import SHOW_DEBUG_LOGS
-from ..logger.processing_logger import (
-    get_processing_logger,
-    set_processing_ui_log_handler,
-)
-
+from ..logger.processing_logger import get_processing_logger
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging Setup
@@ -651,5 +647,4 @@ def invoke_processing_app(
 __all__ = [
     "build_processing_graph",
     "invoke_processing_app",
-    "set_processing_ui_log_handler",
 ]
