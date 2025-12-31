@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Data I/O tools for QGIS layer operations.
-Provides tools for adding, removing, zooming to layers, and reading layer attributes.
+Data I/O tools for QGIS project and layer operations.
+Provides tools for adding, removing, and other operations (zooming, reading attributes, etc.) to layers and projects.
 """
 import os
 from typing import Optional, List, Dict, Any
@@ -84,26 +84,24 @@ def add_layer_to_qgis(
             # Create raster layer
             layer = QgsRasterLayer(path_or_url, layer_name)
         else:
-            return (
-                f"Error: Invalid layer type '{layer_type}'. Use 'vector' or 'raster'."
-            )
+            return f"**Error:** Invalid layer type **{layer_type}**. Use 'vector' or 'raster'."
 
         # Check if layer is valid
         if not layer.isValid():
             _logger.error(
                 f"Failed to load layer from '{path_or_url}' - layer is invalid"
             )
-            return f"Error: Failed to load layer from '{path_or_url}'. The layer is invalid."
+            return f"**Error:** Failed to load layer **{path_or_url}**. The layer is invalid."
 
         # Add layer to QGIS project
         QgsProject.instance().addMapLayer(layer)
         _logger.info(f"Successfully added {layer_type} layer '{layer_name}' to project")
 
-        return f"Success: Added {layer_type} layer '{layer_name}' to QGIS with {layer.featureCount() if layer_type == 'vector' else 'N/A'} features."
+        return f"**Success:** Added {layer_type} layer **{layer_name}** to QGIS with {layer.featureCount() if layer_type == 'vector' else 'N/A'} features."
 
     except Exception as e:
         _logger.error(f"Error adding layer: {str(e)}", exc_info=True)
-        return f"Error adding layer: {str(e)}"
+        return f"**Error:** adding layer: {str(e)}"
 
 
 @tool
@@ -175,7 +173,7 @@ def list_qgis_layers(include_invisible: bool = True) -> str:
 
     except Exception as e:
         _logger.error(f"Error listing layers: {str(e)}", exc_info=True)
-        return f"Error listing layers: {str(e)}"
+        return f"**Error:** listing layers: {str(e)}"
 
 
 @tool
@@ -197,7 +195,7 @@ def zoom_to_layer(layer_name: str) -> str:
     try:
         iface = get_qgis_interface()
         if not iface:
-            return "Error: QGIS interface not initialized. Cannot zoom to layer."
+            return "**Error:** QGIS interface not initialized. Cannot zoom to layer."
 
         project = QgsProject.instance()
 
@@ -210,18 +208,18 @@ def zoom_to_layer(layer_name: str) -> str:
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
-            return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
+            return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         # Zoom to layer extent using the map canvas
         iface.setActiveLayer(layer)
         iface.zoomToActiveLayer()
 
         _logger.info(f"Successfully zoomed to layer '{layer_name}'")
-        return f"Success: Zoomed to layer '{layer_name}'."
+        return f"**Success:** Zoomed to layer **{layer_name}**."
 
     except Exception as e:
         _logger.error(f"Error zooming to layer: {str(e)}", exc_info=True)
-        return f"Error zooming to layer: {str(e)}"
+        return f"**Error:** zooming to layer: {str(e)}"
 
 
 @tool
@@ -252,12 +250,12 @@ def get_layer_columns(layer_name: str) -> str:
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
-            return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
+            return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         # Check if it's a vector layer
         if layer.type() != QgsMapLayer.VectorLayer:
             _logger.error(f"Layer '{layer_name}' is not a vector layer")
-            return f"Error: '{layer_name}' is not a vector layer. Column information is only available for vector layers."
+            return f"**Error:** **{layer_name}** is not a vector layer. Column information is only available for vector layers."
 
         # Get fields
         fields = layer.fields()
@@ -306,7 +304,7 @@ def get_layer_columns(layer_name: str) -> str:
 
     except Exception as e:
         _logger.error(f"Error getting layer columns: {str(e)}", exc_info=True)
-        return f"Error getting layer columns: {str(e)}"
+        return f"**Error:** getting layer columns: {str(e)}"
 
 
 @tool
@@ -329,7 +327,7 @@ def remove_layer(layer_name: str) -> str:
     try:
         iface = get_qgis_interface()
         if not iface:
-            return "Error: QGIS interface not initialized. Cannot remove layer."
+            return "**Error:** QGIS interface not initialized. Cannot remove layer."
 
         project = QgsProject.instance()
 
@@ -347,7 +345,7 @@ def remove_layer(layer_name: str) -> str:
             _logger.error(
                 f"Layer '{layer_name}' not found. Available: {', '.join(available_layers)}"
             )
-            return f"Error: Layer '{layer_name}' not found. Available layers: {', '.join(available_layers)}"
+            return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         # remove the layer using main thread via callback
         result = remove_layer_on_main_thread(layer_id, layer_name)
@@ -355,17 +353,17 @@ def remove_layer(layer_name: str) -> str:
         # for logging information
         if result.get("error"):
             _logger.error(f"Failed to remove layer: {result['error']}")
-            return f"Error: {result['error']}"
+            return f"**Error:** {result['error']}"
         elif result.get("success"):
             _logger.info(f"Successfully removed layer '{layer_name}' from project")
-            return f"Success: Layer '{layer_name}' has been removed from the project."
+            return f"**Success:** Layer **{layer_name}** has been removed from the project."
         else:
             _logger.error(f"Unknown error removing layer '{layer_name}'")
-            return f"Error: Failed to remove layer '{layer_name}'."
+            return f"**Error:** Failed to remove layer **{layer_name}**."
 
     except Exception as e:
         _logger.error(f"Error removing layer: {str(e)}", exc_info=True)
-        return f"Error removing layer: {str(e)}"
+        return f"**Error:** removing layer: {str(e)}"
 
 
 @tool
@@ -402,7 +400,7 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
 
         if file_ext not in valid_extensions:
             _logger.error(f"Invalid file extension: {file_ext}")
-            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
+            return f"**Error:** Invalid file extension **{file_ext}**. Use '.qgs' or '.qgz' for QGIS project files."
 
         # create directory if needed
         project_dir = os.path.dirname(path)
@@ -418,14 +416,14 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
             _logger.info(
                 f"Successfully created project '{project.title()}' at '{path}'"
             )
-            return f"Success: Created new project '{project.title()}' at '{path}'"
+            return f"**Success:** Created new project **{project.title()}** at **{path}**"
         else:
             _logger.error(f"Failed to save project to '{path}'")
-            return f"Error: Failed to save project to '{path}'. Check file permissions and path validity."
+            return f"**Error:** Failed to save project to **{path}**. Check file permissions and path validity."
 
     except Exception as e:
         _logger.error(f"Error creating project: {str(e)}", exc_info=True)
-        return f"Error creating project: {str(e)}"
+        return f"**Error:** creating project: {str(e)}"
 
 
 @tool
@@ -452,7 +450,7 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         if not path:
             path = project.fileName()
             if not path:
-                return "Error: No file path specified and project has not been saved before. Please provide a file path."
+                return "**Error:** No file path specified and project has not been saved before. Please provide a file path."
         else:
             # convert relative path to absolute path
             path = os.path.abspath(path)
@@ -461,7 +459,7 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         valid_extensions = [".qgs", ".qgz"]
         file_ext = os.path.splitext(path.lower())[1]
         if file_ext not in valid_extensions:
-            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
+            return f"**Error:** Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
 
         project_dir = os.path.dirname(path)
         if project_dir and not os.path.exists(project_dir):
@@ -475,12 +473,12 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         success = project.write(path)
 
         if success:
-            return f"Success: Project saved to '{path}'"
+            return f"**Success:** Project saved to **{path}**"
         else:
-            return f"Error: Failed to save project to '{path}'. Check file permissions and path validity."
+            return f"**Error:** Failed to save project to **{path}**. Check file permissions and path validity."
 
     except Exception as e:
-        return f"Error saving project: {str(e)}"
+        return f"**Error:** saving project: {str(e)}"
 
 @tool
 def load_qgis_project(path: str) -> str:
@@ -501,30 +499,30 @@ def load_qgis_project(path: str) -> str:
     try:
         if not os.path.exists(path):
             _logger.error(f"Project file not found: {path}")
-            return f"Error: Project file '{path}' does not exist."
+            return f"**Error:** Project file '{path}' does not exist."
 
         valid_extensions = [".qgs", ".qgz"]
         file_ext = os.path.splitext(path.lower())[1]
 
         if file_ext not in valid_extensions:
             _logger.error(f"Invalid project file extension: {file_ext}")
-            return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
+            return f"**Error:** Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
 
         # load project on main thread via callback
         result = load_project_on_main_thread(path)
 
         if result.get("error"):
             _logger.error(f"Failed to load project: {result['error']}")
-            return f"Error: {result['error']}"
+            return f"**Error:** {result['error']}"
         elif result.get("success"):
             _logger.info(f"Successfully loaded project from '{path}'")
-            return f"Success: Project loaded from '{path}'"
+            return f"**Success:** Project loaded from **{path}**"
         else:
             _logger.error(f"Unknown error loading project from '{path}'")
-            return f"Success: Project loaded from '{path}'"
+            return f"**Error:** Failed to load project from **{path}**."
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)
-        return f"Error loading project: {str(e)}"
+        return f"**Error:** loading project: {str(e)}"
 
 
 @tool
@@ -547,22 +545,21 @@ def delete_existing_project(path: str) -> str:
 
         if not os.path.exists(path):
             _logger.error(f"Project file not found: {path}")
-            return f"Error: Project file '{path}' does not exist."
+            return f"**Error:** Project file '{path}' does not exist."
 
         valid_extensions = [".qgs", ".qgz"]
         file_ext = os.path.splitext(path.lower())[1]
 
         if file_ext not in valid_extensions:
             _logger.error(f"Invalid project file extension: {file_ext}")
-            return f"Error: Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
+            return f"**Error:** Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
 
         os.remove(path)
         _logger.info(f"Successfully deleted project file: {path}")
-        return f"Success: Project file '{path}' has been deleted."
-
+        return f"**Success:** Project file '{path}' has been deleted."
     except Exception as e:
         _logger.error(f"Error deleting project: {str(e)}", exc_info=True)
-        return f"Error deleting project: {str(e)}"
+        return f"**Error:** deleting project: {str(e)}"
 
 
 # Export tools for easy import

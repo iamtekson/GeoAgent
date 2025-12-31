@@ -48,13 +48,13 @@ def select_by_attribute(
                 break
 
         if not layer:
-            return f"Error: Layer '{layer_name}' not found."
+            return f"**Error:** Layer **{layer_name}** not found."
 
         # Check if field exists
         field_index = layer.fields().indexFromName(field_name)
         if field_index == -1:
             available_fields = [f.name() for f in layer.fields()]
-            return f"Error: Field '{field_name}' not found. Available fields: {', '.join(available_fields)}"
+            return f"**Error:** Field **{field_name}** not found. Available fields: {', '.join(available_fields)}"
 
         # Build expression based on operator
         operator_map = {
@@ -71,7 +71,7 @@ def select_by_attribute(
 
         qgis_operator = operator_map.get(operator)
         if not qgis_operator:
-            return f"Error: Unsupported operator '{operator}'. Use one of: {', '.join(operator_map.keys())}"
+            return f"**Error:** Unsupported operator **{operator}**. Use one of: {', '.join(operator_map.keys())}"
 
         # Construct filter expression
         if operator == "contains":
@@ -91,7 +91,7 @@ def select_by_attribute(
         # Execute selection
         expression = QgsExpression(expression_str)
         if expression.hasParserError():
-            return f"Error: Invalid expression: {expression.parserErrorString()}"
+            return f"**Error:** Invalid expression: {expression.parserErrorString()}"
 
         request = QgsFeatureRequest(expression)
         selected_ids = [f.id() for f in layer.getFeatures(request)]
@@ -101,10 +101,10 @@ def select_by_attribute(
         # Highlight on map
         refresh_map_canvas()
 
-        return f"Success: Selected {len(selected_ids)} features in '{layer_name}' where {field_name} {operator} '{value}'."
+        return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** where **{field_name}** {operator} '{value}'."
 
     except Exception as e:
-        return f"Error selecting by attribute: {str(e)}"
+        return f"**Error:** selecting by attribute: {str(e)}"
 
 
 @tool
@@ -143,7 +143,7 @@ def select_by_geometry(
                 break
 
         if not layer:
-            return f"Error: Layer '{layer_name}' not found."
+            return f"**Error:** Layer **{layer_name}** not found."
 
         selected_ids = []
 
@@ -185,7 +185,7 @@ def select_by_geometry(
 
         elif geometry_filter in ["intersecting", "inside", "touching"]:
             if not reference_layer_name:
-                return f"Error: Reference layer required for '{geometry_filter}' operation."
+                return f"**Error:** Reference layer required for **{geometry_filter}** operation."
 
             # Find reference layer
             ref_layer = None
@@ -198,7 +198,7 @@ def select_by_geometry(
                     break
 
             if not ref_layer:
-                return f"Error: Reference layer '{reference_layer_name}' not found."
+                return f"**Error:** Reference layer **{reference_layer_name}** not found."
 
             # Get union of reference geometries
             ref_geom = None
@@ -209,7 +209,7 @@ def select_by_geometry(
                     ref_geom = ref_geom.combine(feature.geometry())
 
             if not ref_geom:
-                return "Error: Reference layer has no valid geometries."
+                return "**Error:** Reference layer has no valid geometries."
 
             # Select based on spatial relationship
             for feature in layer.getFeatures():
@@ -223,7 +223,7 @@ def select_by_geometry(
                     selected_ids.append(feature.id())
 
         else:
-            return f"Error: Unknown geometry filter '{geometry_filter}'. Use: 'largest', 'smallest', 'intersecting', 'inside', 'touching'."
+            return f"**Error:** Unknown geometry filter **{geometry_filter}**. Use: 'largest', 'smallest', 'intersecting', 'inside', 'touching'."
 
         # Apply selection
         layer.selectByIds(selected_ids)
@@ -231,10 +231,10 @@ def select_by_geometry(
         # Highlight on map
         refresh_map_canvas()
 
-        return f"Success: Selected {len(selected_ids)} features in '{layer_name}' using '{geometry_filter}' filter."
+        return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** using **{geometry_filter}** filter."
 
     except Exception as e:
-        return f"Error selecting by geometry: {str(e)}"
+        return f"**Error:** selecting by geometry: {str(e)}"
 
 
 # Export tools for easy import

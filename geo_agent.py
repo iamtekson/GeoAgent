@@ -67,6 +67,7 @@ from .utils.project_loader import (
     ProjectLoadDispatcher,
     set_project_load_callback,
 )
+from .utils.markdown_converter import markdown_to_html
 from typing import Optional
 import importlib
 import subprocess
@@ -358,6 +359,7 @@ class GeoAgent:
             "langchain-google-genai": "langchain_google_genai",
             "langchain-ollama": "langchain_ollama",
             "requests": "requests",
+            "markdown": "markdown",
         }
 
         # Read dependencies from pyproject.toml
@@ -1122,8 +1124,11 @@ class GeoAgent:
         # Remove the extra newline if present
         cursor.deletePreviousChar()
 
-        # Append agent response - use append() for plain text to avoid HTML entity issues
-        self.dlg.llm_response.append("\n<b>Agent:</b> " + response)
+        # Markdown formatting to HTML for proper rendering
+        formatted_response = markdown_to_html(response)
+        
+        # Append agent response with HTML formatting support
+        self.dlg.llm_response.append("\n<b>Agent:</b> " + formatted_response)
         self.dlg.llm_response.append("\n" + "." * 40)
 
         # Re-enable buttons only after response is displayed
