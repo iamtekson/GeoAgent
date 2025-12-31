@@ -3,6 +3,7 @@
 Graph builder for GeoAgent: routes between general conversational mode and geoprocessing workflows.
 """
 from typing import List, Any
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
@@ -30,9 +31,24 @@ def build_graph_app(llm) -> Any:
         last_msg = state["messages"][-1]
         tool_messages = []
         for call in getattr(last_msg, "tool_calls", []) or []:
-            tool_inst = TOOLS[call["name"]]
-            result = tool_inst.invoke(call["args"])
-            tool_messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+            try:
+                tool_inst = TOOLS.get(call["name"])
+                if tool_inst is None:
+                    content = f"Error: Tool '{call['name']}' is not available."
+                else:
+                    result = tool_inst.invoke(call["args"])
+                    # Ensure result is a string for ToolMessage
+                    content = result if isinstance(result, str) else str(result)
+                tool_messages.append(
+                    ToolMessage(content=content, tool_call_id=call["id"])
+                )
+            except Exception as e:
+                tool_messages.append(
+                    ToolMessage(
+                        content=f"Error executing tool '{call['name']}': {str(e)}",
+                        tool_call_id=call["id"],
+                    )
+                )
         return {"messages": state["messages"] + tool_messages}
 
     def should_use_tools(state: AgentState) -> str:
@@ -46,7 +62,7 @@ def build_graph_app(llm) -> Any:
     graph.add_node("tools", tool_node, retry_policy=RetryPolicy(max_attempts=2))
     graph.set_entry_point("llm")
     graph.add_conditional_edges("llm", should_use_tools, {"tools": "tools", END: END})
-    graph.add_edge("tools", "llm")
+    graph.add_edge("tools", END)
 
     return graph.compile(checkpointer=MemorySaver())
 

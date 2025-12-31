@@ -9,7 +9,7 @@ managing the QGIS interface and refresh callback references.
 from qgis.PyQt.QtCore import QObject, pyqtSlot
 from qgis.core import Qgis, QgsMessageLog, QgsProject
 
-# Global references (it will be updated from the geo_agent module)
+# Global references (will be updated from the geo_agent module)
 _qgis_iface = None
 _refresh_callback = None
 
@@ -75,3 +75,6 @@ def refresh_map_canvas():
     """Request canvas refresh via callback to main thread."""
     if _refresh_callback:
         _refresh_callback()
+
+
+

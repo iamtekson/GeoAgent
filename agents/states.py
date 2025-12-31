@@ -42,19 +42,6 @@ class ExecutionState(ParameterState, total=False):
     execution_result: Optional[Dict[str, Any]]
 
 
-class SelectedAlgorithmState(TypedDict, total=False):
-    algorithm_id: str
-    algorithm_name: str
-    reasoning: str
-    confidence: float
-
-
-class GatheredParametersState(TypedDict, total=False):
-    parameters: Dict[str, Any]
-    inferred_fields: List[str]
-    notes: str
-
-
 class ProcessingState(TypedDict, total=False):
     """
     Extended state for geoprocessing workflows.
@@ -97,8 +84,6 @@ __all__ = [
     "SelectionState",
     "ParameterState",
     "ExecutionState",
-    "SelectedAlgorithmState",
-    "GatheredParametersState",
     "ProcessingState",
     "AgentState",
 ]
