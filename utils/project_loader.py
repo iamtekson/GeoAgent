@@ -53,8 +53,8 @@ class ProjectLoadDispatcher(QObject):
             # trigger UI updates
             try:
                 project.readProject.emit()
-            except:
-                pass
+            except Exception as e:
+                QgsMessageLog.logMessage(f"Failed to emit readProject signal: {e}", "GeoAgent", level=Qgis.Warning)
             
             # refresh layers and canvas
             for layer in project.mapLayers().values():
@@ -73,10 +73,7 @@ class ProjectLoadDispatcher(QObject):
             
         except Exception as e:
             self.result["error"] = str(e)
-            try:
-                QgsMessageLog.logMessage(str(e), "GeoAgent", level=Qgis.Warning)
-            except:
-                pass
+            QgsMessageLog.logMessage(str(e), "GeoAgent", level=Qgis.Warning)
             self.result_ready.emit()
 
 

@@ -7,8 +7,7 @@ instead of saving to files.
 """
 
 import logging
-from typing import Optional, Callable
-from datetime import datetime
+from typing import Optional
 from qgis.PyQt.QtWidgets import QTextBrowser
 from qgis.PyQt.QtCore import QObject, pyqtSignal
 

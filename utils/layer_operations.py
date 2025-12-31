@@ -66,8 +66,8 @@ class LayerRemovalDispatcher(QObject):
             self.result["error"] = str(e)
             try:
                 QgsMessageLog.logMessage(str(e), "GeoAgent", level=Qgis.Warning)
-            except:
-                pass
+            except Exception as e:
+                QgsMessageLog.logMessage(f"Failed to log layer removal error: {e}", "GeoAgent", level=Qgis.Warning)
             self.result_ready.emit()
 
 

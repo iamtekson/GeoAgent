@@ -173,8 +173,13 @@ class GeoAgent:
         ui_handler.setLevel(level)
         try:
             ui_handler.set_show_debug(SHOW_DEBUG_LOGS)
-        except Exception:
-            pass
+        except Exception as exc:
+            # log and continue if the UI handler does not support debug toggling
+            QgsMessageLog.logMessage(
+                f"GeoAgent UI handler does not support debug toggle: {exc}",
+                "GeoAgent",
+                level=Qgis.Warning,
+            )
 
         self._ui_logger = logging.getLogger("GeoAgent.UI")
         self._ui_logger.setLevel(level)
@@ -291,7 +296,6 @@ class GeoAgent:
                 Qt.QueuedConnection,
                 Q_ARG(str, path),
             )
-
             # wait for the dispatcher to signal completion
             loop = QEventLoop()
 
@@ -327,7 +331,6 @@ class GeoAgent:
                 Q_ARG(str, layer_id),
                 Q_ARG(str, layer_name),
             )
-
             # wait for the dispatcher to signal completion
             loop = QEventLoop()
 
@@ -706,14 +709,22 @@ class GeoAgent:
         try:
             # Ask for more vertical space in bottom dock area
             self.iface.mainWindow().resizeDocks([self.dlg], [300], Qt.Vertical)
-        except Exception:
-            pass
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to resize: {e}",
+                "GeoAgent",
+                level=Qgis.Warning,
+            )
 
         # Ensure UI logging stays connected on subsequent runs
         try:
             self._setup_ui_logging()
-        except Exception:
-            pass
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to ensure UI logging stays connected: {e}",
+                "GeoAgent",
+                level=Qgis.Warning,
+            )
 
     def showMessage(self, title, msg, button, icon, fontsize=9):
         msgBox = QMessageBox()

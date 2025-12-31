@@ -10,10 +10,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsRasterLayer,
     QgsMapLayer,
-    QgsCoordinateReferenceSystem,
-    QgsVectorFileWriter,
 )
-from qgis.gui import QgisInterface
 from langchain_core.tools import tool
 from ..utils.canvas_refresh import get_qgis_interface
 from ..utils.layer_operations import remove_layer_on_main_thread
@@ -384,8 +381,8 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
         Success message with project path or error message.
 
     Examples:
-        - new_qgis_project('/geoagent/my_project.qgs')
-        - new_qgis_project('/geoagent/test_project.qgz', 'QGIS Test Project')
+        - create_new_qgis_project('/geoagent/my_project.qgs')
+        - create_new_qgis_project('/geoagent/test_project.qgz', 'QGIS Test Project')
     """
     _logger.info(f"Creating new QGIS project: {path}")
     try:
@@ -405,7 +402,7 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
 
         if file_ext not in valid_extensions:
             _logger.error(f"Invalid file extension: {file_ext}")
-            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgis' for QGIS project files."
+            return f"Error: Invalid file extension '{file_ext}'. Use '.qgs' or '.qgz' for QGIS project files."
 
         # create directory if needed
         project_dir = os.path.dirname(path)
@@ -447,6 +444,7 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         - save_qgis_project('/geoagent/my_project.qgs') 
         - save_qgis_project('D:/geoagent/project_backup.qgz')  
     """
+    _logger.info(f"Saving new QGIS project: {path}")
     try:
         project = QgsProject.instance()
 
@@ -494,12 +492,12 @@ def load_qgis_project(path: str) -> str:
 
     Returns:
         Success message with project details or error message.
-
-    _logger.info(f"Loading QGIS project: {path}")
-    try:- load_qgis_project('C:/Users/asus/geoagent/map_project.qgz')
+    
+    Examples:
+    - load_qgis_project('/geoagent/my_project.qgs') 
+    - load_qgis_project('C:/Users/asus/geoagent/map_project.qgz')
     """
     _logger.info(f"Loading QGIS project: {path}")
-
     try:
         if not os.path.exists(path):
             _logger.error(f"Project file not found: {path}")
@@ -523,6 +521,7 @@ def load_qgis_project(path: str) -> str:
             return f"Success: Project loaded from '{path}'"
         else:
             _logger.error(f"Unknown error loading project from '{path}'")
+            return f"Success: Project loaded from '{path}'"
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)
         return f"Error loading project: {str(e)}"
@@ -543,6 +542,7 @@ def delete_existing_project(path: str) -> str:
         - delete_existing_project('/geoagent/old_project.qgs')
         - delete_existing_project('/geoagent/temp_analysis.qgz')
     """
+    _logger.info(f"Deleting QGIS project: {path}")
     try:
 
         if not os.path.exists(path):
