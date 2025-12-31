@@ -19,8 +19,12 @@ changelog=
     v0.1
         - Initial release of GeoAgent plugin for QGIS.
         - Added support for Ollama, ChatGPT and Gemini LLMs.
-        - Implemented dependency installation feature with user notifications.
-        - Implemented the layer read/write capabilities via LLM commands.
+        - Dependency installation feature with user notifications.
+        - Layer read/write tool.
+        - Listing layers and column names.
+        - Performing attribute-based and geometric queries.
+        - Project create/load/save functionalities.
+        - Native geospatial analysis via processing (experimental) agent.
 
 # Tags are comma separated with spaces allowed
 tags=python, LLM, AI, geospatial analysis, natural language, Agent, QGIS, GeoAgent
@@ -28,7 +32,7 @@ tags=python, LLM, AI, geospatial analysis, natural language, Agent, QGIS, GeoAge
 homepage=https://github.com/iamtekson/GeoAgent
 category=Analysis
 icon=icons/icon.png
-experimental=True
+experimental=False
 deprecated=False
 
 # If the plugin can run on QGIS Server.
