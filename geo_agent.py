@@ -50,9 +50,7 @@ from .config.settings import (
     SHOW_DEBUG_LOGS,
 )
 from .logger.logger import UILogHandler
-from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
 from .llm.worker import LLMWorker
-from langchain_core.messages import AIMessage
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 from .utils.canvas_refresh import (
     RefreshDispatcher,
@@ -374,14 +372,15 @@ class GeoAgent:
                 data = tomllib.loads(content)
                 deps = data.get("project", {}).get("dependencies", []) or []
             except Exception:
-                m = re.search(r"dependencies\s*=\s*\[(.*?)\]", content, re.S)
+                m = re.search(r"dependencies\s*=\s*\[(.*)\]", content, re.DOTALL)
                 if m:
                     raw = m.group(1)
                     for line in raw.splitlines():
                         line = line.strip().strip(",")
                         if not line:
                             continue
-                        if line.startswith('"') and line.endswith('"'):
+                        # handle both single and double quoted strings
+                        if (line.startswith('"') and line.endswith('"')) or (line.startswith("'") and line.endswith("'")):
                             deps.append(line[1:-1])
         except Exception:
             deps = []
@@ -946,6 +945,14 @@ class GeoAgent:
             max_tokens: Maximum tokens for response
             mode: Either 'general' or 'processing'
         """
+        try:
+            from .llm.client import create_llm, ollama_model_exists, ollama_pull_model
+        except Exception as e:
+            self._log_error("_initialize_agent", e)
+            raise RuntimeError(
+                "Failed to import LLM client module. Ensure dependencies are installed."
+            ) from e
+        
         try:
             if model_name not in SUPPORTED_MODELS:
                 raise ValueError(f"Unsupported model: {model_name}")

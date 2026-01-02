@@ -1,5 +1,3 @@
-from typing import Optional, Callable, Any
-from langchain_core.messages import BaseMessage, AIMessage
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
 
