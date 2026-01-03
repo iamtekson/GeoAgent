@@ -6,6 +6,9 @@
 
 GeoAgent is a QGIS plugin that integrates Large Language Models (LLMs) to enable geospatial analysis and data processing through natural language commands. Chat with your GIS data, perform complex analyses, and automate workflows using conversational AI.
 
+<!-- Add plugin interface image -->
+<img src="docs/imgs/plugin_interface.png" alt="GeoAgent Plugin Interface" width="100%"/>
+
 ## 📑 Table of Contents
 
 - [🌟 Features](#-features)

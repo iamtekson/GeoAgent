@@ -19,6 +19,9 @@ from ..utils.project_loader import load_project_on_main_thread
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
 
+# import raster and vector extensions from constants
+from ..config.constants import RASTER_EXTENSIONS, VECTOR_EXTENSIONS
+
 _logger = get_processing_logger()
 
 
@@ -52,22 +55,12 @@ def add_layer_to_qgis(
 
         # Auto-detect layer type if not provided
         if not layer_type:
-            raster_extensions = [".tif", ".tiff", ".img", ".asc", ".nc", ".jpg", ".png"]
-            vector_extensions = [
-                ".shp",
-                ".geojson",
-                ".json",
-                ".gpkg",
-                ".kml",
-                ".gml",
-                ".csv",
-            ]
 
             ext = os.path.splitext(path_or_url.lower())[1]
-            if ext in raster_extensions:
+            if ext in RASTER_EXTENSIONS:
                 layer_type = "raster"
                 _logger.debug(f"Auto-detected layer type: raster (extension: {ext})")
-            elif ext in vector_extensions:
+            elif ext in VECTOR_EXTENSIONS:
                 layer_type = "vector"
                 _logger.debug(f"Auto-detected layer type: vector (extension: {ext})")
             else:
