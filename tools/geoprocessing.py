@@ -12,6 +12,8 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 
+from ..config.constants import RASTER_EXTENSIONS
+
 
 # TODO: test this function for both raster and vector outputs
 @tool
@@ -62,23 +64,25 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                 QgsProject.instance().addMapLayer(output_layer_obj)
                 layer_added = True
             elif isinstance(output_layer_obj, str):
-                # It's a path; let QGIS handle the loading via iface or auto-detection
-                from ..utils.canvas_refresh import get_qgis_interface
+                from qgis.core import QgsRasterLayer, QgsVectorLayer
+                import os
 
-                iface = get_qgis_interface()
-                # addVectorLayer or addRasterLayer are safer than manual QgsVectorLayer calls
-                # for string paths as they handle provider discovery better
-                lyr = iface.addVectorLayer(
-                    output_layer_obj, f"Result - {algorithm.split(':')[-1]}", "ogr"
-                )
-                if lyr and lyr.isValid():
-                    layer_added = True
-                else:
-                    # Try raster
-                    lyr = iface.addRasterLayer(
-                        output_layer_obj, f"Result - {algorithm.split(':')[-1]}"
-                    )
+                # Determine if it's a raster or vector file by extension
+                file_ext = os.path.splitext(output_layer_obj)[-1].lower()
+                is_raster = file_ext in RASTER_EXTENSIONS or 'raster' in output_layer_obj.lower()
+                layer_name = f"Result - {algorithm.split(':')[-1]}"
+                
+                if is_raster:
+                    # Load as raster layer directly using QgsRasterLayer
+                    lyr = QgsRasterLayer(output_layer_obj, layer_name)
                     if lyr and lyr.isValid():
+                        QgsProject.instance().addMapLayer(lyr)
+                        layer_added = True
+                else:
+                    # Load as vector layer directly using QgsVectorLayer
+                    lyr = QgsVectorLayer(output_layer_obj, layer_name, "ogr")
+                    if lyr and lyr.isValid():
+                        QgsProject.instance().addMapLayer(lyr)
                         layer_added = True
 
         return {

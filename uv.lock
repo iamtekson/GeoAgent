@@ -295,7 +295,7 @@ wheels = [
 
 [[package]]
 name = "geo-agent"
-version = "0.1.0"
+version = "0.1.1"
 source = { virtual = "." }
 dependencies = [
     { name = "langchain-community" },
@@ -304,6 +304,7 @@ dependencies = [
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "langgraph" },
+    { name = "markdown" },
     { name = "requests" },
 ]
 
@@ -315,6 +316,7 @@ requires-dist = [
     { name = "langchain-ollama", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=1.1.6" },
     { name = "langgraph", specifier = ">=1.0.5" },
+    { name = "markdown", specifier = ">=3.4.0" },
     { name = "requests", specifier = ">=2.32.5" },
 ]
 
@@ -703,6 +705,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d8/4b/d448307e8557e36b20008d0d1cd0a58233c38d90bf978e1d093be0ca4cb2/langsmith-0.5.0.tar.gz", hash = "sha256:5cadf1ddd30e838cf61679f4a776aaef638d4b02ffbceba9f73283caebd39e1b", size = 869272, upload-time = "2025-12-16T17:35:38.78Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/8a/d9bc95607846bc82fbe0b98d2592ffb5e036c97a362735ae926e3d519df7/langsmith-0.5.0-py3-none-any.whl", hash = "sha256:a83750cb3dccb33148d4ffe005e3e03080fad13e01671efbb74c9a68813bfef8", size = 273711, upload-time = "2025-12-16T17:35:37.165Z" },
+]
+
+[[package]]
+name = "markdown"
+version = "3.10"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/ab/7dd27d9d863b3376fcf23a5a13cb5d024aed1db46f963f1b5735ae43b3be/markdown-3.10.tar.gz", hash = "sha256:37062d4f2aa4b2b6b32aefb80faa300f82cc790cb949a35b8caede34f2b68c0e", size = 364931, upload-time = "2025-11-03T19:51:15.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/81/54e3ce63502cd085a0c556652a4e1b919c45a446bd1e5300e10c44c8c521/markdown-3.10-py3-none-any.whl", hash = "sha256:b5b99d6951e2e4948d939255596523444c0e677c669700b1d17aa4a8a464cb7c", size = 107678, upload-time = "2025-11-03T19:51:13.887Z" },
 ]
 
 [[package]]
