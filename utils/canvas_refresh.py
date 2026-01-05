@@ -61,29 +61,29 @@ def execute_on_main_thread(func, *args, **kwargs):
     # Get the current thread ID to isolate results
     thread_id = threading.get_ident()
     
+    # This is the magic part: invokeMethod with BlockingQueuedConnection
+    QMetaObject.invokeMethod(
+        runner, 
+        "run_task", 
+        Qt.BlockingQueuedConnection,
+        Q_ARG(object, func),
+        Q_ARG(list, list(args)),
+        Q_ARG(dict, kwargs),
+        Q_ARG(int, thread_id)
+    )
+    
+    # Retrieve and cleanup the result for this thread
     try:
-        # This is the magic part: invokeMethod with BlockingQueuedConnection
-        QMetaObject.invokeMethod(
-            runner, 
-            "run_task", 
-            Qt.BlockingQueuedConnection,
-            Q_ARG(object, func),
-            Q_ARG(list, list(args)),
-            Q_ARG(dict, kwargs),
-            Q_ARG(int, thread_id)
-        )
-        
-        # Retrieve the result for this thread
         with runner._lock:
             if thread_id not in runner._results:
                 raise RuntimeError(f"Thread {thread_id} result not found in runner")
-            result, error = runner._results.pop(thread_id)
+            result, error = runner._results[thread_id]
         
         if error:
             raise error
         return result
     finally:
-        # Ensure cleanup even if an exception occurs
+        # Always cleanup the result from the dictionary, even if an exception occurs
         with runner._lock:
             runner._results.pop(thread_id, None)
 
