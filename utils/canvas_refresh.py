@@ -8,6 +8,7 @@ managing the QGIS interface and refresh callback references.
 """
 from qgis.PyQt.QtCore import QObject, pyqtSlot, QMetaObject, Qt, Q_ARG
 from functools import wraps
+import threading
 
 
 # Global references (will be updated from the geo_agent module)
@@ -29,16 +30,22 @@ class MainThreadRunner(QObject):
     
     def __init__(self):
         super().__init__()
+        self._results = {}  # Dictionary to store results per thread ID
+        self._lock = threading.Lock()  # Lock to protect the results dictionary
 
-    @pyqtSlot(object, list, dict)
-    def run_task(self, func, args, kwargs):
+    @pyqtSlot(object, list, dict, int)
+    def run_task(self, func, args, kwargs, thread_id):
         """Internal slot to execute the function and store result."""
-        self._result = None
-        self._error = None
+        result = None
+        error = None
         try:
-            self._result = func(*args, **kwargs)
+            result = func(*args, **kwargs)
         except Exception as e:
-            self._error = e
+            error = e
+        
+        # Store the result/error for this specific thread
+        with self._lock:
+            self._results[thread_id] = (result, error)
 
 def execute_on_main_thread(func, *args, **kwargs):
     """
@@ -49,6 +56,9 @@ def execute_on_main_thread(func, *args, **kwargs):
     # In GeoAgent.__init__, you should create: self.main_runner = MainThreadRunner()
     runner = _global_main_runner 
     
+    # Get the current thread ID to isolate results
+    thread_id = threading.get_ident()
+    
     # This is the magic part: invokeMethod with BlockingQueuedConnection
     success = QMetaObject.invokeMethod(
         runner, 
@@ -56,9 +66,19 @@ def execute_on_main_thread(func, *args, **kwargs):
         Qt.BlockingQueuedConnection,
         Q_ARG(object, func),
         Q_ARG(list, list(args)),
-        Q_ARG(dict, kwargs)
+        Q_ARG(dict, kwargs),
+        Q_ARG(int, thread_id)
     )
     
+    # Retrieve the result for this thread
+    with runner._lock:
+        if thread_id not in runner._results:
+            raise RuntimeError(f"Thread {thread_id} result not found in runner")
+        result, error = runner._results.pop(thread_id)
+    
+    if error:
+        raise error
+    return result
     if not success:
         raise RuntimeError(
             f"Failed to invoke method on main thread for function: {func.__name__}"
