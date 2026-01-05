@@ -60,7 +60,7 @@ def execute_on_main_thread(func, *args, **kwargs):
     thread_id = threading.get_ident()
     
     # This is the magic part: invokeMethod with BlockingQueuedConnection
-    QMetaObject.invokeMethod(
+    success = QMetaObject.invokeMethod(
         runner, 
         "run_task", 
         Qt.BlockingQueuedConnection,
@@ -79,6 +79,14 @@ def execute_on_main_thread(func, *args, **kwargs):
     if error:
         raise error
     return result
+    if not success:
+        raise RuntimeError(
+            f"Failed to invoke method on main thread for function: {func.__name__}"
+        )
+    
+    if runner._error:
+        raise runner._error
+    return runner._result
 
 def set_main_runner(runner: MainThreadRunner):
     global _global_main_runner

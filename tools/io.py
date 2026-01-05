@@ -12,7 +12,7 @@ from qgis.core import (
     QgsMapLayer,
 )
 from langchain_core.tools import tool
-from ..utils.canvas_refresh import get_qgis_interface, execute_on_main_thread, qgis_main_thread
+from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
@@ -492,9 +492,9 @@ def load_qgis_project(path: str) -> str:
 
         project = QgsProject.instance()
         project.clear()
-        success = project.read(path)
+        project.read(path)
         _logger.info(f"Successfully loaded project from '{path}'")
-        return {"success": success, "error": None if success else f"Failed to load project from '{path}'. The file may be corrupted or incompatible."}
+        return f"**Success:** Loaded project from **{path}** with {len(project.mapLayers())} layers."
         
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)

@@ -16,7 +16,12 @@ from .filters import (
 )
 
 # for easy importing geoprocessing tools later
-from .geoprocessing import * 
+from .geoprocessing import (
+    execute_processing,
+    list_processing_algorithms,
+    get_algorithm_parameters,
+    find_processing_algorithm,
+    )
 
 # Aggregate all tools for easy import
 TOOLS = {
