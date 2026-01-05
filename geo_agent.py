@@ -80,8 +80,8 @@ class GeoAgent:
         # Save reference to the QGIS interface
         self.iface = iface
         
-        # main runner
-        self.main_runner = MainThreadRunner()
+        # main runner - will be initialized in initGui() on the main thread
+        self.main_runner = None
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -482,6 +482,10 @@ class GeoAgent:
 
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
+
+        # Initialize MainThreadRunner on the main Qt thread
+        # Qt objects should be created on the thread where they will live
+        self.main_runner = MainThreadRunner()
 
         icon_path = os.path.join(self.plugin_dir, "icons", "icon.png")
         self.add_action(
