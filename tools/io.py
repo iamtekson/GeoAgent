@@ -4,7 +4,7 @@ Data I/O tools for QGIS project and layer operations.
 Provides tools for adding, removing, and other operations (zooming, reading attributes, etc.) to layers and projects.
 """
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from qgis.core import (
     QgsProject,
     QgsVectorLayer,
@@ -12,9 +12,7 @@ from qgis.core import (
     QgsMapLayer,
 )
 from langchain_core.tools import tool
-from ..utils.canvas_refresh import get_qgis_interface
-from ..utils.layer_operations import remove_layer_on_main_thread
-from ..utils.project_loader import load_project_on_main_thread
+from ..utils.canvas_refresh import get_qgis_interface, execute_on_main_thread, qgis_main_thread
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
@@ -26,6 +24,7 @@ _logger = get_processing_logger()
 
 
 @tool
+@qgis_main_thread
 def add_layer_to_qgis(
     path_or_url: str,
     layer_name: Optional[str] = None,
@@ -98,6 +97,7 @@ def add_layer_to_qgis(
 
 
 @tool
+@qgis_main_thread
 def list_qgis_layers(include_invisible: bool = True) -> str:
     """
     List all layers currently loaded in the QGIS project.
@@ -170,6 +170,7 @@ def list_qgis_layers(include_invisible: bool = True) -> str:
 
 
 @tool
+@qgis_main_thread
 def zoom_to_layer(layer_name: str) -> str:
     """
     Zoom the QGIS map canvas to the extent of the specified layer.
@@ -216,6 +217,7 @@ def zoom_to_layer(layer_name: str) -> str:
 
 
 @tool
+@qgis_main_thread
 def get_layer_columns(layer_name: str) -> str:
     """
     Get column names and types from a vector layer to help answer queries.
@@ -301,6 +303,7 @@ def get_layer_columns(layer_name: str) -> str:
 
 
 @tool
+@qgis_main_thread
 def remove_layer(layer_name: str) -> str:
     """
     Remove a layer from the QGIS project.
@@ -340,26 +343,21 @@ def remove_layer(layer_name: str) -> str:
             )
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
-        # remove the layer using main thread via callback
-        result = remove_layer_on_main_thread(layer_id, layer_name)
-        
-        # for logging information
-        if result.get("error"):
-            _logger.error(f"Failed to remove layer: {result['error']}")
-            return f"**Error:** {result['error']}"
-        elif result.get("success"):
+        try:
+            project.removeMapLayer(layer_id)
+            iface.mapCanvas().refresh()
             _logger.info(f"Successfully removed layer '{layer_name}' from project")
             return f"**Success:** Layer **{layer_name}** has been removed from the project."
-        else:
-            _logger.error(f"Unknown error removing layer '{layer_name}'")
-            return f"**Error:** Failed to remove layer **{layer_name}**."
+        except Exception as e:
+            _logger.error(f"Error removing layer '{layer_name}': {str(e)}", exc_info=True)
+            return f"**Error:** Failed to remove layer **{layer_name}**: {str(e)}"
 
     except Exception as e:
-        _logger.error(f"Error removing layer: {str(e)}", exc_info=True)
-        return f"**Error:** removing layer: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 @tool
+@qgis_main_thread
 def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> str:
     """
     Create a new QGIS project and save it to a file.
@@ -400,26 +398,24 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
         if project_dir and not os.path.exists(project_dir):
             _logger.debug(f"Creating project directory: {project_dir}")
             os.makedirs(project_dir)
-
-        # save the project
-        project.setFileName(path)
-        success = project.write(path)
-
-        if success:
-            _logger.info(
-                f"Successfully created project '{project.title()}' at '{path}'"
-            )
-            return f"**Success:** Created new project **{project.title()}** at **{path}**"
-        else:
-            _logger.error(f"Failed to save project to '{path}'")
-            return f"**Error:** Failed to save project to **{path}**. Check file permissions and path validity."
-
+            
+        # main logic to save project
+        try:
+            project.setFileName(path)
+            project.write(path)
+            _logger.info(f"Successfully created project at '{path}'")
+            return f"**Success:** Created new project at **{path}**"
+        except Exception as e:
+            _logger.error(f"Error saving project on main thread: {str(e)}", exc_info=True)
+            return f"**Error:** creating project: {str(e)}"
+            
     except Exception as e:
         _logger.error(f"Error creating project: {str(e)}", exc_info=True)
         return f"**Error:** creating project: {str(e)}"
 
 
 @tool
+@qgis_main_thread
 def save_qgis_project(path: Optional[str] = None) -> str:
     """
     Save the current QGIS project to a file.
@@ -474,6 +470,7 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         return f"**Error:** saving project: {str(e)}"
 
 @tool
+@qgis_main_thread
 def load_qgis_project(path: str) -> str:
     """
     Loads an existing QGIS project file.
@@ -501,24 +498,24 @@ def load_qgis_project(path: str) -> str:
             _logger.error(f"Invalid project file extension: {file_ext}")
             return f"**Error:** Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
 
-        # load project on main thread via callback
-        result = load_project_on_main_thread(path)
-
-        if result.get("error"):
-            _logger.error(f"Failed to load project: {result['error']}")
-            return f"**Error:** {result['error']}"
-        elif result.get("success"):
+        try:
+            project = QgsProject.instance()
+            project.clear()
+            success = project.read(path)
             _logger.info(f"Successfully loaded project from '{path}'")
-            return f"**Success:** Project loaded from **{path}**"
-        else:
-            _logger.error(f"Unknown error loading project from '{path}'")
-            return f"**Error:** Failed to load project from **{path}**."
+            return {"success": success, "error": None if success else f"Failed to load project from '{path}'. The file may be corrupted or incompatible."}
+        
+        except Exception as e:
+            _logger.error(f"Error loading project on main thread: {str(e)}", exc_info=True)
+            return {"success": False, "error": str(e)}
+        
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)
         return f"**Error:** loading project: {str(e)}"
 
 
 @tool
+@qgis_main_thread
 def delete_existing_project(path: str) -> str:
     """
     Delete an existing QGIS project file from disk.

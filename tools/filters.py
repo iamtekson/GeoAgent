@@ -1,4 +1,4 @@
-from ..utils.canvas_refresh import refresh_map_canvas
+from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread, execute_on_main_thread
 from typing import Optional
 from qgis.core import (
     QgsProject,
@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 
 
 @tool
+@qgis_main_thread
 def select_by_attribute(
     layer_name: str,
     field_name: str,
@@ -98,8 +99,8 @@ def select_by_attribute(
 
         layer.selectByIds(selected_ids)
 
-        # Highlight on map
-        refresh_map_canvas()
+        iface = get_qgis_interface()
+        iface.mapCanvas().refresh()
 
         return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** where **{field_name}** {operator} '{value}'."
 
@@ -108,6 +109,7 @@ def select_by_attribute(
 
 
 @tool
+@qgis_main_thread
 def select_by_geometry(
     layer_name: str,
     geometry_filter: str,
@@ -228,8 +230,8 @@ def select_by_geometry(
         # Apply selection
         layer.selectByIds(selected_ids)
 
-        # Highlight on map
-        refresh_map_canvas()
+        iface = get_qgis_interface()
+        iface.mapCanvas().refresh()
 
         return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** using **{geometry_filter}** filter."
 

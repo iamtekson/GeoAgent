@@ -27,10 +27,6 @@ from qgis.PyQt.QtCore import (
     QCoreApplication,
     Qt,
     QThread,
-    QMetaObject,
-    QTimer,
-    Q_ARG,
-    QEventLoop,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
@@ -53,17 +49,9 @@ from .logger.logger import UILogHandler
 from .llm.worker import LLMWorker
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 from .utils.canvas_refresh import (
-    RefreshDispatcher,
+    set_main_runner,
     set_qgis_interface,
-    set_refresh_callback,
-)
-from .utils.layer_operations import (
-    LayerRemovalDispatcher,
-    set_layer_removal_callback,
-)
-from .utils.project_loader import (
-    ProjectLoadDispatcher,
-    set_project_load_callback,
+    MainThreadRunner
 )
 from .utils.markdown_converter import markdown_to_html
 from typing import Optional
@@ -91,15 +79,9 @@ class GeoAgent:
         """
         # Save reference to the QGIS interface
         self.iface = iface
-
-        # Dispatcher for main-thread canvas refresh
-        self._refresh_dispatcher = RefreshDispatcher(self.iface)
-
-        # Dispatcher for main-thread project loading
-        self._project_load_dispatcher = ProjectLoadDispatcher(self.iface)
-
-        # Dispatcher for main-thread layer removal
-        self._layer_removal_dispatcher = LayerRemovalDispatcher(self.iface)
+        
+        # main runner
+        self.main_runner = MainThreadRunner()
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -258,94 +240,6 @@ class GeoAgent:
                 self._ui_logger.log(log_level, f"[{tag}] {message}")
         except Exception:
             pass
-
-    def _refresh_callback(self):
-        """Thread-safe refresh callback invoked by tools. Queues a dispatcher slot on the main thread."""
-        try:
-            ok = QMetaObject.invokeMethod(
-                self._refresh_dispatcher,
-                "doRefresh",
-                Qt.QueuedConnection,
-            )
-            if not ok:
-                QgsMessageLog.logMessage(
-                    "QMetaObject.invokeMethod('doRefresh') returned False; "
-                    "falling back to QTimer.singleShot.",
-                    "GeoAgent",
-                    level=Qgis.Warning,
-                )
-                QTimer.singleShot(0, self._refresh_dispatcher.doRefresh)
-        except Exception as e:
-            self._log_error("refresh_callback", e)
-
-    def _project_load_callback(self, path):
-        """Thread-safe project load callback using signals."""
-        try:
-
-            def on_result_ready():
-                loop.quit()
-
-            # connect signal to quit when result is ready
-            self._project_load_dispatcher.result_ready.connect(on_result_ready)
-
-            # queue the load operation on the main thread
-            QMetaObject.invokeMethod(
-                self._project_load_dispatcher,
-                "doLoadProject",
-                Qt.QueuedConnection,
-                Q_ARG(str, path),
-            )
-            # wait for the dispatcher to signal completion
-            loop = QEventLoop()
-
-            # max wait 30 seconds timeout
-            QTimer.singleShot(30000, loop.quit)
-            loop.exec_()
-
-            # disconnect signal to avoid memory leaks
-            self._project_load_dispatcher.result_ready.disconnect(on_result_ready)
-
-            # return the result that was set by the dispatcher
-            return self._project_load_dispatcher.result
-        except Exception as e:
-            error_msg = f"_project_load_callback error: {e}"
-            QgsMessageLog.logMessage(error_msg, "GeoAgent", level=Qgis.Warning)
-            return {"success": False, "error": error_msg}
-
-    def _layer_removal_callback(self, layer_id, layer_name):
-        """Thread-safe layer removal callback using signals."""
-        try:
-
-            def on_result_ready():
-                loop.quit()
-
-            # connect signal to quit when result is ready
-            self._layer_removal_dispatcher.result_ready.connect(on_result_ready)
-
-            # queue the removal operation on the main thread
-            QMetaObject.invokeMethod(
-                self._layer_removal_dispatcher,
-                "doRemoveLayer",
-                Qt.QueuedConnection,
-                Q_ARG(str, layer_id),
-                Q_ARG(str, layer_name),
-            )
-            # wait for the dispatcher to signal completion
-            loop = QEventLoop()
-
-            # max wait 10 seconds timeout
-            QTimer.singleShot(10000, loop.quit)
-            loop.exec_()
-
-            # disconnect signal to avoid memory leaks
-            self._layer_removal_dispatcher.result_ready.disconnect(on_result_ready)
-
-            # return the result that was set by the dispatcher
-            return self._layer_removal_dispatcher.result
-        except Exception as e:
-            error_msg = f"_layer_removal_callback error: {e}"
-            QgsMessageLog.logMessage(error_msg, "GeoAgent", level=Qgis.Warning)
-            return {"success": False, "error": error_msg}
 
     def _ensure_dependencies_installed(self):
         """Ensure required Python packages are installed via pyproject.toml."""
@@ -622,21 +516,9 @@ class GeoAgent:
         # Ensure dependencies before loading graph or message classes
         self._ensure_dependencies_installed()
 
-        # Initialize QGIS interface for tools
-        try:
-            # Register QGIS interface for tools module
-            set_qgis_interface(self.iface)
-
-            # Register thread-safe refresh callback method
-            set_refresh_callback(self._refresh_callback)
-
-            # Register thread-safe project load callback method
-            set_project_load_callback(self._project_load_callback)
-
-            # Register thread-safe layer removal callback method
-            set_layer_removal_callback(self._layer_removal_callback)
-        except Exception as e:
-            self._log_error("initialize_tools_interface", e)
+        # Set global main runner for canvas refresh utility
+        set_main_runner(self.main_runner)
+        set_qgis_interface(self.iface)
 
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
@@ -824,9 +706,7 @@ class GeoAgent:
             # self.dlg.send_chat.setText("Processing...")
 
             # Create and start worker thread for non-blocking inference
-            self._worker_thread = LLMWorker(
-                self.app, self.thread_id, msgs, invoke_app_async
-            )
+            self._worker_thread = LLMWorker(self.app, self.thread_id, msgs, invoke_app_async)
             self._worker_thread.result_ready.connect(self._on_invoke_result)
             self._worker_thread.error.connect(self._on_invoke_error)
             self._worker_thread.finished.connect(self._on_invoke_finished)

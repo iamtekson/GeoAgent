@@ -15,12 +15,8 @@ from .filters import (
     select_by_geometry,
 )
 
-from .geoprocessing import (
-    execute_processing,
-    list_processing_algorithms,
-    get_algorithm_parameters,
-    find_processing_algorithm,
-)
+# for easy importing geoprocessing tools later
+from .geoprocessing import * 
 
 # Aggregate all tools for easy import
 TOOLS = {
