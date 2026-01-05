@@ -495,7 +495,10 @@ def load_qgis_project(path: str) -> str:
 
         project = QgsProject.instance()
         project.clear()
-        project.read(path)
+        success = project.read(path)
+        if not success:
+            _logger.error(f"Failed to load project from '{path}'")
+            return f"**Error:** Failed to load project from '{path}'. The project file may be corrupted, inaccessible, or invalid."
         _logger.info(f"Successfully loaded project from '{path}'")
         return f"**Success:** Loaded project from **{path}** with {len(project.mapLayers())} layers."
         
