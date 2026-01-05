@@ -343,18 +343,14 @@ def remove_layer(layer_name: str) -> str:
             )
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
-        try:
-            project.removeMapLayer(layer_id)
-            iface.mapCanvas().refresh()
-            _logger.info(f"Successfully removed layer '{layer_name}' from project")
-            return f"**Success:** Layer **{layer_name}** has been removed from the project."
-        except Exception as e:
-            _logger.error(f"Error removing layer '{layer_name}': {str(e)}", exc_info=True)
-            return f"**Error:** Failed to remove layer **{layer_name}**: {str(e)}"
-
+        project.removeMapLayer(layer_id)
+        iface.mapCanvas().refresh()
+        _logger.info(f"Successfully removed layer '{layer_name}' from project")
+        return f"**Success:** Layer **{layer_name}** has been removed from the project."
+    
     except Exception as e:
-        return f"Error: {str(e)}"
-
+        _logger.error(f"Error removing layer: {str(e)}", exc_info=True)
+        return f"**Error:** Failed to remove layer **{layer_name}**: {str(e)}"
 
 @tool
 @qgis_main_thread
@@ -400,14 +396,10 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
             os.makedirs(project_dir)
             
         # main logic to save project
-        try:
-            project.setFileName(path)
-            project.write(path)
-            _logger.info(f"Successfully created project at '{path}'")
-            return f"**Success:** Created new project at **{path}**"
-        except Exception as e:
-            _logger.error(f"Error saving project on main thread: {str(e)}", exc_info=True)
-            return f"**Error:** creating project: {str(e)}"
+        project.setFileName(path)
+        project.write(path)
+        _logger.info(f"Successfully created project at '{path}'")
+        return f"**Success:** Created new project at **{path}**"
             
     except Exception as e:
         _logger.error(f"Error creating project: {str(e)}", exc_info=True)
@@ -498,16 +490,11 @@ def load_qgis_project(path: str) -> str:
             _logger.error(f"Invalid project file extension: {file_ext}")
             return f"**Error:** Invalid file extension '{file_ext}'. Expected '.qgs' or '.qgz' file."
 
-        try:
-            project = QgsProject.instance()
-            project.clear()
-            success = project.read(path)
-            _logger.info(f"Successfully loaded project from '{path}'")
-            return {"success": success, "error": None if success else f"Failed to load project from '{path}'. The file may be corrupted or incompatible."}
-        
-        except Exception as e:
-            _logger.error(f"Error loading project on main thread: {str(e)}", exc_info=True)
-            return {"success": False, "error": str(e)}
+        project = QgsProject.instance()
+        project.clear()
+        success = project.read(path)
+        _logger.info(f"Successfully loaded project from '{path}'")
+        return {"success": success, "error": None if success else f"Failed to load project from '{path}'. The file may be corrupted or incompatible."}
         
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)

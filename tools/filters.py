@@ -8,7 +8,9 @@ from qgis.core import (
 )
 
 from langchain_core.tools import tool
+from ..logger.processing_logger import get_processing_logger
 
+_logger = get_processing_logger()
 
 @tool
 @qgis_main_thread
@@ -35,6 +37,7 @@ def select_by_attribute(
         - select_by_attribute('roads', 'type', '=', 'highway')
         - select_by_attribute('names', 'name', 'starts_with', 'New')
     """
+    _logger.info(f"Selecting by attribute on layer '{layer_name}', field '{field_name}', operator '{operator}', value '{value}'")
     try:
         project = QgsProject.instance()
 
@@ -55,6 +58,7 @@ def select_by_attribute(
         field_index = layer.fields().indexFromName(field_name)
         if field_index == -1:
             available_fields = [f.name() for f in layer.fields()]
+            _logger.error(f"Field '{field_name}' not found in layer '{layer_name}'. Available fields: {', '.join(available_fields)}")
             return f"**Error:** Field **{field_name}** not found. Available fields: {', '.join(available_fields)}"
 
         # Build expression based on operator
@@ -102,9 +106,11 @@ def select_by_attribute(
         iface = get_qgis_interface()
         iface.mapCanvas().refresh()
 
+        _logger.info(f"Selected {len(selected_ids)} features in layer '{layer_name}' using attribute filter.")
         return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** where **{field_name}** {operator} '{value}'."
 
     except Exception as e:
+        _logger.error(f"Error selecting by attribute: {str(e)}", exc_info=True)
         return f"**Error:** selecting by attribute: {str(e)}"
 
 
@@ -131,6 +137,7 @@ def select_by_geometry(
         - select_by_geometry('roads', 'intersecting', 'study_area')
         - select_by_geometry('points', 'inside', 'boundary')
     """
+    _logger.info(f"Selecting by geometry on layer '{layer_name}' using filter '{geometry_filter}' with reference layer '{reference_layer_name}'")
     try:
         project = QgsProject.instance()
 
@@ -225,6 +232,7 @@ def select_by_geometry(
                     selected_ids.append(feature.id())
 
         else:
+            _logger.error(f"Unknown geometry filter '{geometry_filter}'")
             return f"**Error:** Unknown geometry filter **{geometry_filter}**. Use: 'largest', 'smallest', 'intersecting', 'inside', 'touching'."
 
         # Apply selection
@@ -233,9 +241,11 @@ def select_by_geometry(
         iface = get_qgis_interface()
         iface.mapCanvas().refresh()
 
+        _logger.info(f"Selected {len(selected_ids)} features in layer '{layer_name}' using geometry filter.")
         return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** using **{geometry_filter}** filter."
 
     except Exception as e:
+        _logger.error(f"Error selecting by geometry: {str(e)}", exc_info=True)
         return f"**Error:** selecting by geometry: {str(e)}"
 
 
