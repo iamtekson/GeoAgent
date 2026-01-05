@@ -207,6 +207,9 @@ def zoom_to_layer(layer_name: str) -> str:
         # Zoom to layer extent using the map canvas
         iface.setActiveLayer(layer)
         iface.zoomToActiveLayer()
+        
+        # refresh canvas
+        iface.mapCanvas().refresh()
 
         _logger.info(f"Successfully zoomed to layer '{layer_name}'")
         return f"**Success:** Zoomed to layer **{layer_name}**."

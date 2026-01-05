@@ -55,12 +55,14 @@ def execute_on_main_thread(func, *args, **kwargs):
     # We need a reference to the runner living on the main thread
     # In GeoAgent.__init__, you should create: self.main_runner = MainThreadRunner()
     runner = _global_main_runner 
+    if not runner:
+        raise RuntimeError("MainThreadRunner is not set. Please set it using set_main_runner().")
     
     # Get the current thread ID to isolate results
     thread_id = threading.get_ident()
     
     # This is the magic part: invokeMethod with BlockingQueuedConnection
-    success = QMetaObject.invokeMethod(
+    QMetaObject.invokeMethod(
         runner, 
         "run_task", 
         Qt.BlockingQueuedConnection,
@@ -79,14 +81,6 @@ def execute_on_main_thread(func, *args, **kwargs):
     if error:
         raise error
     return result
-    if not success:
-        raise RuntimeError(
-            f"Failed to invoke method on main thread for function: {func.__name__}"
-        )
-    
-    if runner._error:
-        raise runner._error
-    return runner._result
 
 def set_main_runner(runner: MainThreadRunner):
     global _global_main_runner
