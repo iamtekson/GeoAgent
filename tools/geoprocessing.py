@@ -15,7 +15,7 @@ from qgis.core import (
 from ..config.constants import RASTER_EXTENSIONS
 
 
-# TODO: test this function for both raster and vector outputs
+
 @tool
 def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
     """
