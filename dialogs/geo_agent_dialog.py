@@ -26,6 +26,7 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtCore import QSize
 
 from ..logger.logger import UILogHandler
 from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES
@@ -53,6 +54,12 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         # Set default values for UI controls
         self._set_defaults()
 
+        # Apply standard info icons to helper buttons
+        self._apply_info_icons()
+
+        # Set initial tooltips that depend on provider selection
+        self._update_model_name_tooltip()
+
         # Setup connections for mode switching
         self.setup_connections()
 
@@ -79,6 +86,28 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
             # Set temperature to 0.8
             if hasattr(self, "temperature"):
                 self.temperature.setValue(0.8)
+        except Exception:
+            pass
+
+    def _apply_info_icons(self):
+        """apply native information icons to tooltip buttons."""
+        try:
+            info_icon = self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation)
+            for btn_name in (
+                "info_provider",
+                "info_temperature",
+                "info_maximum_token",
+                "info_model_name",
+                "info_api_key",
+                "info_ollama_base_url",
+                "info_ollama_model_name",
+            ):
+                btn = getattr(self, btn_name, None)
+                if btn:
+                    btn.setIcon(info_icon)
+                    btn.setIconSize(QSize(14, 14))
+                    btn.setText("")
+                    btn.setAutoRaise(True)
         except Exception:
             pass
 
@@ -142,8 +171,13 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         return getattr(self, "ui_log_handler", None)
 
     def setup_connections(self):
-        # Connect the combo box change signal to our switching function
+        # Connect the combo box change signal to our switching function and tooltip updates
         self.model.currentIndexChanged.connect(self.update_ui_visibility)
+        self.model.currentTextChanged.connect(lambda _: self._update_model_name_tooltip())
+
+        # Show info dialog for model name when requested
+        if hasattr(self, "info_model_name"):
+            self.info_model_name.clicked.connect(self._on_model_name_info_clicked)
 
         # Set the initial state
         self.update_ui_visibility()
@@ -152,8 +186,48 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         selection = self.model.currentText()
 
         if selection == "Ollama":
-            # Index 1 might be your Ollama page
             self.stackedWidget.setCurrentIndex(1)
         else:
-            # Index 0 might be your standard API page
             self.stackedWidget.setCurrentIndex(0)
+
+        # refresh tooltips that depend on provider selection
+        self._update_model_name_tooltip()
+
+    def _update_model_name_tooltip(self):
+        """Set model-name tooltip based on current provider selection."""
+        try:
+            btn = getattr(self, "info_model_name", None)
+            if not btn:
+                return
+            # click on the info button shows detailed info
+            btn.setToolTip("Click for more information.")
+        except Exception:
+            pass
+
+    def _get_model_name_help_text(self) -> str:
+        """Return the model-name help text based on current provider selection."""
+        selection = self.model.currentText() if hasattr(self, "model") else ""
+        if selection == "ChatGPT":
+            return (
+                "Select one of the model names from https://platform.openai.com/docs/models\n"
+                "\n"
+                "Examples: gpt-5.2-2025-12-11, gpt-5-mini-2025-08-07, gpt-4.1-2025-04-14, etc.\n"
+            )
+
+        if selection == "Gemini":
+            return (
+                "Select one of the model codes from https://ai.google.dev/gemini-api/docs\n"
+                "\n"
+                "Examples: gemini-3-pro-preview, gemini-2.5-pro, gemini-2.5-flash-preview-09-2025, etc.\n"
+            )
+    
+        return ""
+
+    def _on_model_name_info_clicked(self):
+        """show a message box with more information."""
+        try:
+            message = self._get_model_name_help_text()
+            if message:
+                QtWidgets.QMessageBox.information(self, "Information", message)
+        except Exception:
+            pass

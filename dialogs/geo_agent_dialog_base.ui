@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tab">
        <attribute name="title">
@@ -29,7 +29,7 @@
          <layout class="QVBoxLayout" name="verticalLayout">
           <item>
            <layout class="QHBoxLayout" name="layout_custom">
-            <item>
+            <!-- <item>
              <widget class="QTextEdit" name="llm_response_edit">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Ignored" vsizetype="Ignored">
@@ -45,7 +45,7 @@ p, li { white-space: pre-wrap; }
 &lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:7.8pt;&quot;&gt;&lt;br /&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
               </property>
              </widget>
-            </item>
+            </item> -->
             <item>
              <widget class="QTextBrowser" name="llm_response">
               <property name="sizePolicy">
@@ -88,6 +88,9 @@ p, li { white-space: pre-wrap; }
             </item>
             <item>
              <widget class="QRadioButton" name="general_mode">
+              <property name="toolTip">
+               <string>Choose 'General' mode for conversational GIS assistance.</string>
+              </property>
               <property name="text">
                <string>General</string>
               </property>
@@ -98,6 +101,9 @@ p, li { white-space: pre-wrap; }
             </item>
             <item>
              <widget class="QRadioButton" name="processing_mode">
+              <property name="toolTip">
+               <string>Choose 'Processing' mode to execute geoprocessing tasks.</string>
+              </property>
               <property name="text">
                <string>Processing (Experimental)</string>
               </property>
@@ -195,16 +201,22 @@ p, li { white-space: pre-wrap; }
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_6">
              <item>
-              <widget class="QLabel" name="label_7">
+              <widget class="QToolButton" name="info_provider">
                <property name="toolTip">
-                <string>The model which will generate the completion.</string>
+                <string>Choose a LLM backend to run your workflow.</string>
                </property>
                <property name="text">
-                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
-&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
-p, li { white-space: pre-wrap; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'MS Shell Dlg 2'; font-size:8pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Provider: &lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_7">
+               <property name="text">
+                <string>Provider:</string>
                </property>
                <property name="openExternalLinks">
                 <bool>true</bool>
@@ -212,23 +224,10 @@ p, li { white-space: pre-wrap; }
               </widget>
              </item>
              <item>
-              <spacer name="horizontalSpacer_6">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Minimum</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>46</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
               <widget class="QComboBox" name="model">
+               <property name="enabled">
+                <bool>true</bool>
+               </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                  <horstretch>0</horstretch>
@@ -276,12 +275,22 @@ p, li { white-space: pre-wrap; }
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_4">
              <item>
-              <widget class="QLabel" name="label_5">
+              <widget class="QToolButton" name="info_temperature">
                <property name="toolTip">
-                <string>Controls randomness: Lowering results in less random completions. As the temperature approaches zero, the model will become deterministic and repetitive.</string>
+                <string>Choose an appropriate temperature. Lower value produces more deterministic responses and higher value enables greater creativity and variability.</string>
                </property>
                <property name="text">
-                <string>Temperature:     </string>
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_5">
+               <property name="text">
+               <string>Temperature:</string>
                </property>
               </widget>
              </item>
@@ -316,10 +325,20 @@ p, li { white-space: pre-wrap; }
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_3">
              <item>
-              <widget class="QLabel" name="label_6">
+              <widget class="QToolButton" name="info_maximum_token">
                <property name="toolTip">
-                <string>One token is roughly 4 characters for normal English text</string>
+                <string>Choose the value for maximum token. The maximum token parameter defines the upper limit on the number of tokens (words, punctuation, or special characters) that can be generated in a single response.</string>
                </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_6">
                <property name="text">
                 <string>Maximum Token: </string>
                </property>
@@ -356,37 +375,81 @@ p, li { white-space: pre-wrap; }
            <item>
             <widget class="QStackedWidget" name="stackedWidget">
              <property name="currentIndex">
-              <number>0</number>
+              <number>1</number>
              </property>
              <widget class="QWidget" name="page">
-              <widget class="QgsPasswordLineEdit" name="custom_apikey">
+              <widget class="QToolButton" name="info_model_name">
                <property name="geometry">
                 <rect>
-                 <x>77</x>
-                 <y>40</y>
-                 <width>371</width>
+                 <x>0</x>
+                 <y>10</y>
+                 <width>18</width>
+                 <height>18</height>
+                </rect>
+               </property>
+               <property name="toolTip">
+                <string>Instruction: enter the model identifier required by the selected provider.</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+              <widget class="QLabel" name="label_8">
+               <property name="geometry">
+                <rect>
+                 <x>22</x>
+                 <y>10</y>
+                 <width>71</width>
+                 <height>16</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Model Name:</string>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="model_name">
+               <property name="geometry">
+                <rect>
+                 <x>100</x>
+                 <y>10</y>
+                 <width>361</width>
                  <height>20</height>
                 </rect>
+               </property>
+              </widget>
+              <widget class="QToolButton" name="info_api_key">
+               <property name="geometry">
+                <rect>
+                 <x>0</x>
+                 <y>40</y>
+                 <width>18</width>
+                 <height>18</height>
+                </rect>
+               </property>
+               <property name="toolTip">
+                <string>Provide your own API key for the selected provider.</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
                </property>
               </widget>
               <widget class="QLabel" name="label_2">
                <property name="geometry">
                 <rect>
-                 <x>0</x>
+                 <x>22</x>
                  <y>40</y>
-                 <width>42</width>
+                 <width>55</width>
                  <height>20</height>
                 </rect>
                </property>
-               <property name="toolTip">
-                <string>If you want, you can use your API key.</string>
-               </property>
                <property name="text">
-                <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
-&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
-p, li { white-space: pre-wrap; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'MS Shell Dlg 2'; font-size:8pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;API Key:&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>API Key:</string>
                </property>
                <property name="wordWrap">
                 <bool>true</bool>
@@ -395,27 +458,14 @@ p, li { white-space: pre-wrap; }
                 <bool>false</bool>
                </property>
               </widget>
-              <widget class="QLineEdit" name="model_name">
+              <widget class="QgsPasswordLineEdit" name="custom_apikey">
                <property name="geometry">
                 <rect>
-                 <x>80</x>
-                 <y>10</y>
-                 <width>361</width>
+                 <x>100</x>
+                 <y>40</y>
+                 <width>371</width>
                  <height>20</height>
                 </rect>
-               </property>
-              </widget>
-              <widget class="QLabel" name="label_8">
-               <property name="geometry">
-                <rect>
-                 <x>0</x>
-                 <y>10</y>
-                 <width>71</width>
-                 <height>16</height>
-                </rect>
-               </property>
-               <property name="text">
-                <string>Model Name:</string>
                </property>
               </widget>
               <widget class="Line" name="line_3">
@@ -433,11 +483,46 @@ p, li { white-space: pre-wrap; }
               </widget>
              </widget>
              <widget class="QWidget" name="page_2">
-              <widget class="QLineEdit" name="ollama_model_name">
+              <widget class="QToolButton" name="info_ollama_base_url">
                <property name="geometry">
                 <rect>
-                 <x>110</x>
-                 <y>40</y>
+                 <x>0</x>
+                 <y>10</y>
+                 <width>18</width>
+                 <height>18</height>
+                </rect>
+               </property>
+               <property name="toolTip">
+                <string>Enter the base URL where your Ollama server is running (default: http://localhost:11434)</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+              <widget class="QLabel" name="label_4">
+               <property name="geometry">
+                <rect>
+                 <x>22</x>
+                 <y>10</y>
+                 <width>101</width>
+                 <height>20</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Ollama Base URL:</string>
+               </property>
+               <property name="buddy">
+                <cstring>label_4</cstring>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="ollama_base_url">
+               <property name="geometry">
+                <rect>
+                 <x>150</x>
+                 <y>10</y>
                  <width>401</width>
                  <height>19</height>
                 </rect>
@@ -448,24 +533,24 @@ p, li { white-space: pre-wrap; }
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="layoutDirection">
-                <enum>Qt::LeftToRight</enum>
-               </property>
               </widget>
-              <widget class="QLabel" name="label_4">
+              <widget class="QToolButton" name="info_ollama_model_name">
                <property name="geometry">
                 <rect>
                  <x>0</x>
-                 <y>10</y>
-                 <width>143</width>
-                 <height>20</height>
+                 <y>40</y>
+                 <width>18</width>
+                 <height>18</height>
                 </rect>
                </property>
-               <property name="text">
-                <string>Ollama Base URL: </string>
+               <property name="toolTip">
+                <string>Enter the Ollama model name (Example: llama3.2:3b, mistral, codellama)</string>
                </property>
-               <property name="buddy">
-                <cstring>label_4</cstring>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
                </property>
               </widget>
               <widget class="QLabel" name="label_3">
@@ -474,30 +559,27 @@ p, li { white-space: pre-wrap; }
                </property>
                <property name="geometry">
                 <rect>
-                 <x>0</x>
+                 <x>22</x>
                  <y>40</y>
-                 <width>157</width>
+                 <width>121</width>
                  <height>20</height>
                 </rect>
                </property>
                <property name="mouseTracking">
                 <bool>true</bool>
                </property>
-               <property name="layoutDirection">
-                <enum>Qt::LeftToRight</enum>
-               </property>
                <property name="text">
-                <string>Ollama Model Name: </string>
+                <string>Ollama Model Name:</string>
                </property>
                <property name="wordWrap">
                 <bool>false</bool>
                </property>
               </widget>
-              <widget class="QLineEdit" name="ollama_base_url">
+              <widget class="QLineEdit" name="ollama_model_name">
                <property name="geometry">
                 <rect>
-                 <x>110</x>
-                 <y>10</y>
+                 <x>150</x>
+                 <y>40</y>
                  <width>401</width>
                  <height>19</height>
                 </rect>
