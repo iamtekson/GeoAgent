@@ -72,7 +72,9 @@ def execute_on_main_thread(func, *args, **kwargs):
     
     # Retrieve the result for this thread
     with runner._lock:
-        result, error = runner._results.pop(thread_id, (None, None))
+        if thread_id not in runner._results:
+            raise RuntimeError(f"Thread {thread_id} result not found in runner")
+        result, error = runner._results.pop(thread_id)
     
     if error:
         raise error
