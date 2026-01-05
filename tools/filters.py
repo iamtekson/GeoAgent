@@ -1,4 +1,4 @@
-from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread, execute_on_main_thread
+from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
 from typing import Optional
 from qgis.core import (
     QgsProject,
