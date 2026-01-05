@@ -522,6 +522,15 @@ class GeoAgent:
 
         # Ensure MainThreadRunner is initialized (should be done in initGui())
         if self.main_runner is None:
+            # This should not happen in normal QGIS plugin lifecycle
+            # Log a warning as this indicates a problem with plugin initialization
+            QgsMessageLog.logMessage(
+                "MainThreadRunner was not initialized in initGui(). "
+                "This may indicate a problem with plugin initialization.",
+                "GeoAgent",
+                level=Qgis.Warning
+            )
+            # Create it here as a fallback, though this is not ideal for threading
             self.main_runner = MainThreadRunner()
 
         # Set global main runner for canvas refresh utility

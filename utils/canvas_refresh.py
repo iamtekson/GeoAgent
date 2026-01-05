@@ -53,7 +53,7 @@ def execute_on_main_thread(func, *args, **kwargs):
     It blocks the worker thread until the main thread finishes the task.
     """
     # We need a reference to the runner living on the main thread
-    # In GeoAgent.__init__, you should create: self.main_runner = MainThreadRunner()
+    # In GeoAgent.initGui(), MainThreadRunner should be created on the main Qt thread
     runner = _global_main_runner 
     if not runner:
         raise RuntimeError("MainThreadRunner is not set. Please set it using set_main_runner().")
