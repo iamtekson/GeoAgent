@@ -80,8 +80,8 @@ class GeoAgent:
         # Save reference to the QGIS interface
         self.iface = iface
         
-        # main runner
-        self.main_runner = MainThreadRunner()
+        # main runner - will be initialized in initGui() on the main thread
+        self.main_runner = None
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -483,6 +483,10 @@ class GeoAgent:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
+        # Initialize MainThreadRunner on the main Qt thread
+        # Qt objects should be created on the thread where they will live
+        self.main_runner = MainThreadRunner()
+
         icon_path = os.path.join(self.plugin_dir, "icons", "icon.png")
         self.add_action(
             icon_path,
@@ -515,6 +519,21 @@ class GeoAgent:
         """Run method that performs all the real work"""
         # Ensure dependencies before loading graph or message classes
         self._ensure_dependencies_installed()
+
+        # Ensure MainThreadRunner is initialized (should be done in initGui())
+        # MainThreadRunner is a QObject that must be created on the main Qt thread
+        # If it's None here, initGui() was not called properly by QGIS
+        if self.main_runner is None:
+            # This should not happen in normal QGIS plugin lifecycle
+            # Log a warning as this indicates a problem with plugin initialization
+            QgsMessageLog.logMessage(
+                'MainThreadRunner was not initialized in initGui(). '
+                'This may indicate a problem with plugin initialization.',
+                'GeoAgent',
+                level=Qgis.Warning
+            )
+            # Create it here as a fallback, though this is not ideal for threading
+            self.main_runner = MainThreadRunner()
 
         # Set global main runner for canvas refresh utility
         set_main_runner(self.main_runner)
