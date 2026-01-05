@@ -521,13 +521,15 @@ class GeoAgent:
         self._ensure_dependencies_installed()
 
         # Ensure MainThreadRunner is initialized (should be done in initGui())
+        # MainThreadRunner is a QObject that must be created on the main Qt thread
+        # If it's None here, initGui() was not called properly by QGIS
         if self.main_runner is None:
             # This should not happen in normal QGIS plugin lifecycle
             # Log a warning as this indicates a problem with plugin initialization
             QgsMessageLog.logMessage(
-                "MainThreadRunner was not initialized in initGui(). "
-                "This may indicate a problem with plugin initialization.",
-                "GeoAgent",
+                'MainThreadRunner was not initialized in initGui(). '
+                'This may indicate a problem with plugin initialization.',
+                'GeoAgent',
                 level=Qgis.Warning
             )
             # Create it here as a fallback, though this is not ideal for threading
