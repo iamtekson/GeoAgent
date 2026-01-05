@@ -520,6 +520,10 @@ class GeoAgent:
         # Ensure dependencies before loading graph or message classes
         self._ensure_dependencies_installed()
 
+        # Ensure MainThreadRunner is initialized (should be done in initGui())
+        if self.main_runner is None:
+            self.main_runner = MainThreadRunner()
+
         # Set global main runner for canvas refresh utility
         set_main_runner(self.main_runner)
         set_qgis_interface(self.iface)
