@@ -53,7 +53,8 @@ def execute_on_main_thread(func, *args, **kwargs):
     It blocks the worker thread until the main thread finishes the task.
     """
     # We need a reference to the runner living on the main thread
-    # In GeoAgent.initGui(), MainThreadRunner should be created on the main Qt thread
+    # In GeoAgent.__init__, you should create: self.main_runner = MainThreadRunner()
+    # and register it via set_main_runner(self.main_runner)
     runner = _global_main_runner 
     if not runner:
         raise RuntimeError("MainThreadRunner is not set. Please set it using set_main_runner().")
@@ -72,15 +73,20 @@ def execute_on_main_thread(func, *args, **kwargs):
         Q_ARG(int, thread_id)
     )
     
-    # Retrieve the result for this thread
-    with runner._lock:
-        if thread_id not in runner._results:
-            raise RuntimeError(f"Thread {thread_id} result not found in runner")
-        result, error = runner._results.pop(thread_id)
-    
-    if error:
-        raise error
-    return result
+    # Retrieve and cleanup the result for this thread
+    try:
+        with runner._lock:
+            if thread_id not in runner._results:
+                raise RuntimeError(f"Thread {thread_id} result not found in runner")
+            result, error = runner._results[thread_id]
+        
+        if error:
+            raise error
+        return result
+    finally:
+        # Always cleanup the result from the dictionary, even if an exception occurs
+        with runner._lock:
+            runner._results.pop(thread_id, None)
 
 def set_main_runner(runner: MainThreadRunner):
     global _global_main_runner
