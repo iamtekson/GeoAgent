@@ -9,6 +9,8 @@ from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
+
+from agents.multi_step_processing import build_multi_step_processing_graph
 from ..tools import TOOLS
 
 from .states import AgentState
@@ -75,21 +77,28 @@ def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
     return result["messages"][-1]
 
 
-def build_unified_graph(llm, mode: str = "general") -> Any:
+def build_unified_graph(llm, mode: str = "general", multi_step: bool = True) -> Any:
     """
     Build a mode-specific graph: either general (conversational + tools) or processing (geoprocessing workflow).
 
     Args:
         llm: The language model instance
         mode: Either 'general' (default) for conversational mode or 'processing' for geoprocessing workflow
+        multi_step: If True (and mode='processing'), use multi-step processing graph; otherwise use single-step
 
     Returns:
         Compiled LangGraph application for the specified mode
     """
     if mode == "processing":
-        # Build dedicated processing workflow with ordered chain:
-        # route → find_algorithms → select → inspect → gather_params → execute → finalize
-        return build_processing_graph(llm)
+        # Build dedicated processing workflow
+        if multi_step:
+            # Multi-step recursive sub-graph for complex workflows
+            return build_multi_step_processing_graph(llm).compile(
+                checkpointer=MemorySaver()
+            )
+        else:
+            # Traditional single-step: route → find_algorithms → select → inspect → gather_params → execute → finalize
+            return build_processing_graph(llm)
     else:
         # Build general mode with tool binding and multi-turn reasoning
         return build_graph_app(llm)
