@@ -994,6 +994,7 @@ Provide a clear response about what you did."""
             "error_message": str(e),
             "task_results": task_results,
             "_last_was_geoprocessing": False,
+            "_retry_count": state.get("_retry_count", 0),
         }
 
 
