@@ -105,70 +105,74 @@ def route_node(state: ProcessingState) -> ProcessingState:
     }
 
 
-def should_route_entry(state: ProcessingState) -> str:
-    """
-    Route to either geoprocessing decomposition or general LLM.
-    """
-    is_processing = state.get("is_processing_task", False)
-
-    if is_processing:
-        _logger.debug("Routing to geoprocessing decomposition")
-        return "decompose"
-    else:
-        _logger.debug("Routing to general LLM")
-        return "llm"
-
-
 def decompose_tasks_node(state: ProcessingState) -> ProcessingState:
     """
-    Decompose a multi-step query into ordered, executable subtasks.
+    Decompose any query (processing or LLM) into ordered, executable subtasks.
 
-    Uses LLM with structured output to identify task boundaries and dependencies.
+    For processing queries: Uses LLM to identify task boundaries and dependencies.
+    For non-processing queries: Creates a single LLM task.
     """
     _logger.info("=" * 80)
     _logger.info("NODE: decompose_tasks_node START")
 
-    if not state.get("is_processing_task"):
-        _logger.info("Not a processing task, skipping decomposition")
-        return state
-
+    is_processing = state.get("is_processing_task", False)
     query = state["user_query"]
-    _logger.debug(f"Decomposing query: {query}")
+    _logger.debug(f"Decomposing query (is_processing={is_processing}): {query}")
 
-    messages = [
-        SystemMessage(content=TASK_DECOMPOSITION_PROMPT),
-        HumanMessage(content=f"User query: {query}"),
-    ]
+    # For processing queries, try LLM decomposition into multiple tasks
+    if is_processing:
+        messages = [
+            SystemMessage(content=TASK_DECOMPOSITION_PROMPT),
+            HumanMessage(content=f"User query: {query}"),
+        ]
 
-    try:
-        structured_llm = llm.with_structured_output(TaskDecomposition)
-        decomposition: TaskDecomposition = structured_llm.invoke(messages)
+        try:
+            structured_llm = llm.with_structured_output(TaskDecomposition)
+            decomposition: TaskDecomposition = structured_llm.invoke(messages)
 
-        tasks = [task.model_dump() for task in decomposition.tasks]
-        total_steps = decomposition.total_steps
+            tasks = [task.model_dump() for task in decomposition.tasks]
+            total_steps = decomposition.total_steps
 
-        is_multi_step = total_steps > 1
+            is_multi_step = total_steps > 1
 
-        _logger.info(
-            f"Decomposed into {total_steps} task(s), multi_step={is_multi_step}"
-        )
-        for i, task in enumerate(tasks, 1):
-            _logger.debug(f"  Task {i}: {task['operation']}")
-            _logger.debug(f"    - Algorithm hint: {task['algorithm_hint']}")
-            _logger.debug(f"    - Dependencies: {task['dependencies']}")
+            _logger.info(
+                f"Decomposed into {total_steps} task(s), multi_step={is_multi_step}"
+            )
+            for i, task in enumerate(tasks, 1):
+                _logger.debug(f"  Task {i}: {task['operation']}")
+                _logger.debug(f"    - Algorithm hint: {task['algorithm_hint']}")
+                _logger.debug(f"    - Dependencies: {task['dependencies']}")
 
-        return {
-            **state,
-            "task_queue": tasks,
-            "current_task_index": 0,
-            "completed_tasks": 0,
-            "is_multi_step": is_multi_step,
-            "task_results": {},
-        }
-    except Exception as e:
-        _logger.error(f"Error decomposing tasks: {str(e)}", exc_info=True)
-        # Fallback: treat as single task
-        _logger.warning("Falling back to single-task mode")
+            return {
+                **state,
+                "task_queue": tasks,
+                "current_task_index": 0,
+                "completed_tasks": 0,
+                "is_multi_step": is_multi_step,
+                "task_results": {},
+            }
+        except Exception as e:
+            _logger.error(f"Error decomposing tasks: {str(e)}", exc_info=True)
+            # Fallback: treat as single task
+            _logger.warning("Falling back to single-task mode")
+            single_task = {
+                "task_id": 1,
+                "operation": query,
+                "algorithm_hint": "",
+                "dependencies": [],
+                "key_parameters": {},
+            }
+            return {
+                **state,
+                "task_queue": [single_task],
+                "current_task_index": 0,
+                "completed_tasks": 0,
+                "is_multi_step": False,
+                "task_results": {},
+            }
+    else:
+        # For non-processing queries, create a single LLM task
+        _logger.info("Non-processing query, creating single LLM task")
         single_task = {
             "task_id": 1,
             "operation": query,
@@ -264,7 +268,9 @@ def should_route_task(state: ProcessingState) -> str:
         structured_llm = llm.with_structured_output(RouteDecision)
         result: RouteDecision = structured_llm.invoke(messages)
         is_processing = result.is_processing_task
-        _logger.info(f"Task {current_idx + 1} routing: is_processing={is_processing}: {operation}")
+        _logger.info(
+            f"Task {current_idx + 1} routing: is_processing={is_processing}: {operation}"
+        )
         return "processing" if is_processing else "llm_task"
     except Exception as e:
         _logger.warning(f"Task routing failed, defaulting to llm_task: {str(e)}")
@@ -609,6 +615,9 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
             "execution_result": result,
             "task_results": task_results,
             "completed_tasks": completed_tasks,
+            "_last_was_geoprocessing": True,
+            "error_message": None,
+            "_retry_count": 0,
         }
 
     except Exception as e:
@@ -628,26 +637,47 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
             **state,
             "error_message": str(e),
             "task_results": task_results,
+            "_last_was_geoprocessing": True,
         }
 
 
 def should_continue_multi_tasks(state: ProcessingState) -> str:
     """
-    Decide whether to continue with next task, stop on error, or finalize.
+    Decide what to do after task execution or error:
+    - 'error_analysis': Task failed, analyze and potentially retry
+    - 'next_task': More tasks remain, move to next
+    - 'finalize': All done or error unrecoverable, finalize workflow
     """
-    if state.get("error_message"):
-        _logger.debug("Error encountered, stopping task loop")
-        return "error_analysis"  # Go to error analysis
-
+    error = state.get("error_message")
     current_idx = state.get("current_task_index", 0)
     tasks = state.get("task_queue", [])
+    retry_count = state.get("_retry_count", 0)
+    was_geoprocessing = state.get("_last_was_geoprocessing", False)
 
+    # If there's an error, decide on retry vs continue
+    if error:
+        _logger.info(
+            f"Task error detected, retry_count={retry_count}, geoprocessing={was_geoprocessing}"
+        )
+
+        # For geoprocessing errors: allow retry up to 2 times
+        if was_geoprocessing and retry_count < 2:
+            _logger.info(
+                f"Geoprocessing error - retrying (attempt {retry_count + 1}/2)"
+            )
+            return "error_analysis"  # Routes to error_analysis, which can lead to select node
+
+        # For LLM errors or max retries reached: skip to finalize
+        _logger.info("Max retries or LLM error - skipping to finalize")
+        return "finalize"
+
+    # No error: check if more tasks remain
     if current_idx + 1 < len(tasks):
-        _logger.debug(f"Moving to next task ({current_idx + 2}/{len(tasks)})")
-        return "next_task"  # Continue to next task
+        _logger.info(f"Moving to next task ({current_idx + 2}/{len(tasks)})")
+        return "next_task"
     else:
-        _logger.debug("All tasks completed, moving to finalization")
-        return "finalize"  # All done
+        _logger.info(f"All {len(tasks)} tasks completed, finalizing workflow")
+        return "finalize"
 
 
 def next_task_node(state: ProcessingState) -> ProcessingState:
@@ -677,7 +707,11 @@ def next_task_node(state: ProcessingState) -> ProcessingState:
 
 def error_analysis_node(state: ProcessingState) -> ProcessingState:
     """
-    Analyze a failed task and provide helpful suggestions to the user.
+    Analyze a failed task and route appropriately.
+
+    For geoprocessing errors: Can retry up to 2 times by returning to select node
+    For LLM errors: Continue to next task
+    After 2 retries: Proceed to finalization
     """
     _logger.info("=" * 80)
     _logger.info("NODE: error_analysis_node START")
@@ -687,9 +721,13 @@ def error_analysis_node(state: ProcessingState) -> ProcessingState:
     current_task_idx = state.get("current_task_index", 0)
     tasks = state.get("task_queue", [])
     current_task = tasks[current_task_idx] if current_task_idx < len(tasks) else {}
+    retry_count = state.get("_retry_count", 0)
+    was_processing_task = state.get("_last_was_geoprocessing", False)
 
-    completed_tasks = state.get("completed_tasks", 0)
-    task_results = state.get("task_results", {})
+    _logger.info(f"Analyzing error (retry {retry_count}): {error}")
+    _logger.info(
+        f"Task type: {'geoprocessing' if was_processing_task else 'LLM-based'}"
+    )
 
     # Build context for error analysis
     messages = [
@@ -697,22 +735,12 @@ def error_analysis_node(state: ProcessingState) -> ProcessingState:
         HumanMessage(
             content=(
                 f"Failed Task: {current_task.get('operation', 'Unknown')}\n"
-                f"Task ID: {current_task_idx + 1}\n"
-                f"Error Message: {error}\n\n"
+                f"Error: {error}\n"
+                f"Retry attempt: {retry_count}\n"
+                f"Task type: {'Geoprocessing' if was_processing_task else 'LLM-based'}\n\n"
                 f"User Query: {query}\n"
-                f"Completed Tasks: {completed_tasks}/{len(tasks)}\n"
                 f"Algorithm: {state.get('selected_algorithm', 'Unknown')}\n"
-                f"Parameters Attempted: {state.get('gathered_parameters', {})}\n\n"
-                f"Previous successful tasks:\n"
-                + "\n".join(
-                    [
-                        f"  - Task {tid}: {task_results[tid].get('output_layers', [])}"
-                        for tid in sorted(task_results.keys())
-                        if task_results[tid].get("success")
-                    ]
-                )
-                if task_results
-                else "  None"
+                f"Please analyze the error and suggest solutions."
             )
         ),
     ]
@@ -722,33 +750,30 @@ def error_analysis_node(state: ProcessingState) -> ProcessingState:
         analysis: ErrorAnalysis = error_structured_llm.invoke(messages)
 
         _logger.info(f"Error diagnosis: {analysis.diagnosis}")
-        _logger.debug(f"Missing info: {analysis.missing_info}")
-        _logger.debug(f"Suggestions: {analysis.user_suggestions}")
 
-        # Store error analysis in state for user communication
-        error_info = {
+        # Store error analysis
+        state["_error_analysis"] = {
             "diagnosis": analysis.diagnosis,
             "missing_info": analysis.missing_info,
             "user_suggestions": analysis.user_suggestions,
             "partial_results": analysis.partial_results,
             "example_query_fix": analysis.example_query_fix,
         }
+        state["_retry_count"] = retry_count + 1
 
     except Exception as e:
         _logger.warning(f"Error analysis failed: {str(e)}")
-        error_info = {
-            "diagnosis": f"Task {current_task_idx + 1} failed: {error}",
+        state["_error_analysis"] = {
+            "diagnosis": f"Task failed: {error}",
             "missing_info": ["Unable to determine"],
-            "user_suggestions": ["Please check the error message and try again"],
-            "partial_results": f"Completed {completed_tasks}/{len(tasks)} tasks before failure",
+            "user_suggestions": ["Please check the error and try a different approach"],
+            "partial_results": "",
             "example_query_fix": "Unable to suggest",
         }
+        state["_retry_count"] = retry_count + 1
 
     _logger.info("NODE: error_analysis_node END")
-    return {
-        **state,
-        "_error_analysis": error_info,
-    }
+    return state
 
 
 def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
@@ -783,8 +808,11 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
     task_summary = []
     for task_id in sorted(task_results.keys()):
         task = next(
-            (t for idx, t in enumerate(tasks, start=1)
-             if t.get("task_id") == task_id or idx == task_id),
+            (
+                t
+                for idx, t in enumerate(tasks, start=1)
+                if t.get("task_id") == task_id or idx == task_id
+            ),
             None,
         )
         result = task_results[task_id]
@@ -798,7 +826,9 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
                     output_info = f" → {str(result['execution_result'])[:60]}..."
                 task_summary.append(f"✓ {operation}{output_info}")
             else:
-                task_summary.append(f"✗ {operation} (Error: {result.get('error', 'Unknown')})")
+                task_summary.append(
+                    f"✗ {operation} (Error: {result.get('error', 'Unknown')})"
+                )
 
     # Create LLM prompt with rich context
     if error and error_analysis:
@@ -829,15 +859,21 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
             HumanMessage(content=summary_prompt),
         ]
         summary_response = llm.invoke(summary_messages)
-        summary_content = summary_response.content if hasattr(summary_response, "content") else str(summary_response)
-        
-        new_messages = state.get("messages", []) + [
-            AIMessage(content=summary_content)
-        ]
+        summary_content = (
+            summary_response.content
+            if hasattr(summary_response, "content")
+            else str(summary_response)
+        )
+
+        new_messages = state.get("messages", []) + [AIMessage(content=summary_content)]
     except Exception as e:
         _logger.error(f"Summary generation failed: {str(e)}", exc_info=True)
         # Fallback to simple summary
-        summary_text = f"✓ Completed {completed_tasks}/{len(tasks)} tasks successfully." if not error else f"✗ Workflow failed at task {state.get('current_task_index', 0) + 1}"
+        summary_text = (
+            f"✓ Completed {completed_tasks}/{len(tasks)} tasks successfully."
+            if not error
+            else f"✗ Workflow failed at task {state.get('current_task_index', 0) + 1}"
+        )
         new_messages = state.get("messages", []) + [AIMessage(content=summary_text)]
 
     _logger.info("NODE: finalize_multi_step_node END")
@@ -845,80 +881,6 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
         **state,
         "messages": new_messages,
     }
-
-
-def tool_node(state: ProcessingState) -> ProcessingState:
-    """Handle tool calls from LLM."""
-    last_msg = state["messages"][-1]
-    tool_messages = []
-    for call in getattr(last_msg, "tool_calls", []) or []:
-        try:
-            tool_inst = TOOLS.get(call["name"])
-            if tool_inst is None:
-                content = f"Error: Tool '{call['name']}' is not available."
-            else:
-                result = tool_inst.invoke(call["args"])
-                content = result if isinstance(result, str) else str(result)
-            tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
-        except Exception as e:
-            tool_messages.append(
-                ToolMessage(
-                    content=f"Error executing tool '{call['name']}': {str(e)}",
-                    tool_call_id=call["id"],
-                )
-            )
-    return {"messages": state["messages"] + tool_messages}
-
-
-def llm_node(state: ProcessingState) -> ProcessingState:
-    """LLM node for response generation and tool binding.
-    Handles both single-task and multi-step workflows.
-    """
-    _logger.info("=" * 80)
-    _logger.info("NODE: llm_node START")
-
-    # For multi-step task execution, prepare task context
-    if state.get("task_queue") and state.get("current_task_index") is not None:
-        current_idx = state["current_task_index"]
-        tasks = state["task_queue"]
-        
-        if current_idx < len(tasks):
-            current_task = tasks[current_idx]
-            current_task_id = current_task.get("task_id", current_idx + 1)
-            operation = current_task.get("operation", "")
-            
-            # Build context
-            previous_outputs = state.get("_previous_outputs", {})
-            context = ""
-            if previous_outputs:
-                context = "\n\nPrevious task outputs:\n" + "\n".join(
-                    [f"- {k}: {v}" for k, v in previous_outputs.items()]
-                )
-            
-            try:
-                layers = list_qgis_layers.invoke({}).get("layers", [])
-                layers_context = f"\n\nAvailable layers: {', '.join(layers)}"
-            except Exception:
-                layers_context = ""
-            
-            task_message = f"""Execute this task:
-{operation}{context}{layers_context}
-
-Provide a clear response about what you did."""
-            
-            messages = state.get("messages", []) + [HumanMessage(content=task_message)]
-        else:
-            messages = state.get("messages", [])
-    else:
-        messages = state.get("messages", [])
-
-    try:
-        bound_llm = llm.bind_tools(list(TOOLS.values()))
-    except Exception:
-        bound_llm = llm
-
-    response = bound_llm.invoke(messages)
-    return {"messages": state["messages"] + [response]}
 
 
 def execute_llm_task_node(state: ProcessingState) -> ProcessingState:
@@ -959,7 +921,7 @@ Provide a clear response about what you did."""
     try:
         bound_llm = llm.bind_tools(list(TOOLS.values()))
         response = bound_llm.invoke(messages)
-        
+
         # Execute any tool calls
         if hasattr(response, "tool_calls") and response.tool_calls:
             tool_messages = []
@@ -969,15 +931,27 @@ Provide a clear response about what you did."""
                     try:
                         result = tool.invoke(call["args"])
                         content = result if isinstance(result, str) else str(result)
-                        tool_messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
+                        tool_messages.append(
+                            ToolMessage(content=content, tool_call_id=call["id"])
+                        )
                     except Exception as e:
-                        tool_messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=call["id"]))
-            
+                        tool_messages.append(
+                            ToolMessage(
+                                content=f"Error: {str(e)}", tool_call_id=call["id"]
+                            )
+                        )
+
             # Get final response after tools
             final_response = llm.invoke(messages + [response] + tool_messages)
-            response_content = final_response.content if hasattr(final_response, "content") else str(final_response)
+            response_content = (
+                final_response.content
+                if hasattr(final_response, "content")
+                else str(final_response)
+            )
         else:
-            response_content = response.content if hasattr(response, "content") else str(response)
+            response_content = (
+                response.content if hasattr(response, "content") else str(response)
+            )
 
         # Store task result
         task_results = state.get("task_results", {})
@@ -996,6 +970,9 @@ Provide a clear response about what you did."""
             **state,
             "task_results": task_results,
             "completed_tasks": completed_tasks,
+            "_last_was_geoprocessing": False,
+            "error_message": None,
+            "_retry_count": 0,
         }
 
     except Exception as e:
@@ -1008,15 +985,33 @@ Provide a clear response about what you did."""
             "execution_result": None,
             "error": str(e),
         }
-        return {**state, "error_message": str(e), "task_results": task_results}
+        return {
+            **state,
+            "error_message": str(e),
+            "task_results": task_results,
+            "_last_was_geoprocessing": False,
+        }
 
 
-def should_use_tools(state: ProcessingState) -> str:
-    """Route LLM output: run tools if requested, otherwise end."""
-    last_msg = state["messages"][-1]
-    if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
-        return "tools"
-    return "end"
+def should_retry_or_finalize(state: ProcessingState) -> str:
+    """
+    After error analysis, decide whether to:
+    - 'select': Retry geoprocessing task with different algorithm
+    - 'finalize': Give up on this task and finalize
+    """
+    retry_count = state.get("_retry_count", 0)
+    was_geoprocessing = state.get("_last_was_geoprocessing", False)
+
+    # For geoprocessing with retries remaining, go back to algorithm selection
+    if was_geoprocessing and retry_count < 2:
+        _logger.info(
+            f"Retrying geoprocessing (attempt {retry_count}/2) - returning to algorithm selection"
+        )
+        return "select"
+
+    # Otherwise, finalize
+    _logger.info("No more retries or non-geoprocessing task - finalizing")
+    return "finalize"
 
 
 def build_multi_step_processing_graph(llm_instance) -> Any:
@@ -1052,30 +1047,23 @@ def build_multi_step_processing_graph(llm_instance) -> Any:
     graph.add_node("select", select_algorithm_node_multi)
     graph.add_node("inspect", inspect_parameters_node_multi)
     graph.add_node("gather", gather_parameters_node_multi)
-    graph.add_node("execute", execute_node_multi, retry_policy=RetryPolicy(max_attempts=2))
+    graph.add_node(
+        "execute", execute_node_multi, retry_policy=RetryPolicy(max_attempts=2)
+    )
 
     # Task execution and finalization
     graph.add_node("execute_llm_task", execute_llm_task_node)
     graph.add_node("next_task", next_task_node)
     graph.add_node("error_analysis", error_analysis_node)
     graph.add_node("finalize", finalize_multi_step_node)
-    graph.add_node("llm", llm_node)
-    graph.add_node("tools", tool_node)
 
-    # Entry and main flow - route to either decompose (processing) or llm (general)
+    # Entry: route directly to decompose (always decompose first)
     graph.set_entry_point("route")
-    graph.add_conditional_edges(
-        "route",
-        should_route_entry,
-        {
-            "decompose": "decompose",
-            "llm": "llm",
-        },
-    )
+    graph.add_edge("route", "decompose")
 
     # Multi-step workflow flow
     graph.add_edge("decompose", "analyze_deps")
-    
+
     # Route each task to geoprocessing or LLM execution
     graph.add_conditional_edges(
         "analyze_deps",
@@ -1096,28 +1084,37 @@ def build_multi_step_processing_graph(llm_instance) -> Any:
     graph.add_conditional_edges(
         "execute",
         should_continue_multi_tasks,
-        {"next_task": "next_task", "error_analysis": "error_analysis", "finalize": "finalize"},
+        {
+            "next_task": "next_task",
+            "error_analysis": "error_analysis",
+            "finalize": "finalize",
+        },
     )
     graph.add_conditional_edges(
         "execute_llm_task",
         should_continue_multi_tasks,
-        {"next_task": "next_task", "error_analysis": "error_analysis", "finalize": "finalize"},
+        {
+            "next_task": "next_task",
+            "error_analysis": "error_analysis",
+            "finalize": "finalize",
+        },
+    )
+
+    # Error analysis: decide whether to retry (select) or finalize
+    graph.add_conditional_edges(
+        "error_analysis",
+        should_retry_or_finalize,
+        {
+            "select": "select",
+            "finalize": "finalize",
+        },
     )
 
     # Task loop
     graph.add_edge("next_task", "analyze_deps")
-    graph.add_edge("error_analysis", "finalize")
-    
-    # Finalization ends workflow (no more LLM cycling)
-    graph.add_edge("finalize", END)
 
-    # Entry LLM path (for non-processing queries)
-    graph.add_conditional_edges(
-        "llm",
-        should_use_tools,
-        {"tools": "tools", "end": END},
-    )
-    graph.add_edge("tools", "llm")
+    # Finalization ends workflow
+    graph.add_edge("finalize", END)
 
     _logger.info("Multi-step processing graph built successfully")
     return graph
