@@ -668,6 +668,7 @@ def next_task_node(state: ProcessingState) -> ProcessingState:
         "is_current_task_processing": None,
         "_current_task_id": None,
         "_previous_outputs": state.get("_previous_outputs", {}),
+        "error_message": None,
     }
 
     _logger.info("NODE: next_task_node END")
