@@ -218,7 +218,10 @@ def analyze_dependencies_node(state: ProcessingState) -> ProcessingState:
     for prev_task_id, result in task_results.items():
         if result.get("success"):
             output_layers = result.get("output_layers", [])
-            for layer in output_layers:
+            for idx, layer in enumerate(output_layers):
+                # Store each layer under an indexed key so multiple outputs are preserved
+                previous_outputs[f"task_{prev_task_id}_output_{idx}"] = layer
+                # Maintain legacy behavior: unindexed key points to the last layer
                 previous_outputs[f"task_{prev_task_id}_output"] = layer
                 _logger.debug(f"  Available from task {prev_task_id}: {layer}")
 
