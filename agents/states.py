@@ -66,6 +66,22 @@ class ProcessingState(TypedDict, total=False):
     execution_result: Optional[Dict[str, Any]]  # Result from execute_processing
     error_message: Optional[str]  # Error details if processing fails
 
+    # Multi-task workflow metadata (NEW)
+    task_queue: Optional[List[Dict[str, Any]]]  # List of decomposed tasks
+    task_results: Optional[
+        Dict[int, Dict[str, Any]]
+    ]  # Results from each task: {task_id: TaskResult}
+    current_task_index: int  # Index of task currently being executed
+    completed_tasks: int  # Number of successfully completed tasks
+    is_multi_step: bool  # Whether this is a multi-step workflow
+    is_current_task_processing: Optional[bool]  # Whether current task is geoprocessing
+
+    # Internal workflow tracking fields (prefixed with _)
+    _current_task_id: Optional[int]
+    _previous_outputs: Optional[Dict[str, str]]
+    _last_was_geoprocessing: Optional[bool]
+    _retry_count: Optional[int]
+    _error_analysis: Optional[Dict[str, Any]]
 
 class AgentState(TypedDict):
     """
