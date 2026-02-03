@@ -638,6 +638,7 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
             "error_message": str(e),
             "task_results": task_results,
             "_last_was_geoprocessing": True,
+            "_retry_count": state.get("_retry_count", 0),
         }
 
 
@@ -977,19 +978,23 @@ Provide a clear response about what you did."""
 
     except Exception as e:
         _logger.error(f"LLM task failed: {str(e)}", exc_info=True)
-        task_results = dict(state.get("task_results", {}))
-        task_results[current_task_id] = {
-            "task_id": current_task_id,
-            "success": False,
-            "output_layers": [],
-            "execution_result": None,
-            "error": str(e),
+        existing_task_results = dict(state.get("task_results", {}))
+        task_results = {
+            **existing_task_results,
+            current_task_id: {
+                "task_id": current_task_id,
+                "success": False,
+                "output_layers": [],
+                "execution_result": None,
+                "error": str(e),
+            },
         }
         return {
             **state,
             "error_message": str(e),
             "task_results": task_results,
             "_last_was_geoprocessing": False,
+            "_retry_count": state.get("_retry_count", 0),
         }
 
 
