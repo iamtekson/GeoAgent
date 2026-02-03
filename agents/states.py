@@ -76,6 +76,12 @@ class ProcessingState(TypedDict, total=False):
     is_multi_step: bool  # Whether this is a multi-step workflow
     is_current_task_processing: Optional[bool]  # Whether current task is geoprocessing
 
+    # Internal workflow tracking fields (prefixed with _)
+    _current_task_id: Optional[int]
+    _previous_outputs: Optional[Dict[str, str]]
+    _last_was_geoprocessing: Optional[bool]
+    _retry_count: Optional[int]
+    _error_analysis: Optional[Dict[str, Any]]
 
 class AgentState(TypedDict):
     """
