@@ -638,6 +638,7 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
             "error_message": str(e),
             "task_results": task_results,
             "_last_was_geoprocessing": True,
+            "_retry_count": state.get("_retry_count", 0),
         }
 
 
