@@ -788,7 +788,7 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
                 if result.get("output_layers"):
                     output_info = f" → Output: {', '.join(result['output_layers'])}"
                 elif result.get("execution_result"):
-                    output_info = f" → {result['execution_result'][:60]}..."
+                    output_info = f" → {str(result['execution_result'])[:60]}..."
                 task_summary.append(f"✓ {operation}{output_info}")
             else:
                 task_summary.append(f"✗ {operation} (Error: {result.get('error', 'Unknown')})")
