@@ -598,7 +598,7 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
         _logger.debug(f"Output layers: {output_layers}")
 
         # Store task result
-        task_results = state.get("task_results", {})
+        task_results = dict(state.get("task_results", {}))
         task_results[current_task_id] = {
             "task_id": current_task_id,
             "success": True,
@@ -624,7 +624,7 @@ def execute_node_multi(state: ProcessingState) -> ProcessingState:
         _logger.error(f"Processing execution failed: {str(e)}", exc_info=True)
 
         # Store failed task result
-        task_results = state.get("task_results", {})
+        task_results = dict(state.get("task_results", {}))
         task_results[current_task_id] = {
             "task_id": current_task_id,
             "success": False,
@@ -954,7 +954,7 @@ Provide a clear response about what you did."""
             )
 
         # Store task result
-        task_results = state.get("task_results", {})
+        task_results = dict(state.get("task_results", {}))
         task_results[current_task_id] = {
             "task_id": current_task_id,
             "success": True,
@@ -977,7 +977,7 @@ Provide a clear response about what you did."""
 
     except Exception as e:
         _logger.error(f"LLM task failed: {str(e)}", exc_info=True)
-        task_results = state.get("task_results", {})
+        task_results = dict(state.get("task_results", {}))
         task_results[current_task_id] = {
             "task_id": current_task_id,
             "success": False,
