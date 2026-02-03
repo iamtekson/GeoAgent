@@ -782,9 +782,12 @@ def finalize_multi_step_node(state: ProcessingState) -> ProcessingState:
     # Build detailed task summary with operations
     task_summary = []
     for task_id in sorted(task_results.keys()):
-        task = next((t for t in tasks if t.get("task_id") == task_id or tasks.index(t) + 1 == task_id), None)
+        task = next(
+            (t for idx, t in enumerate(tasks, start=1)
+             if t.get("task_id") == task_id or idx == task_id),
+            None,
+        )
         result = task_results[task_id]
-        
         if task:
             operation = task.get("operation", "Unknown task")
             if result.get("success"):
