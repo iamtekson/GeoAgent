@@ -226,13 +226,16 @@ def analyze_dependencies_node(state: ProcessingState) -> ProcessingState:
                 _logger.debug(f"  Available from task {prev_task_id}: {layer}")
 
     # Store in state for gather_parameters_node to use
-    state["_current_task_id"] = task_id
-    state["_previous_outputs"] = previous_outputs
+    new_state = {
+        **state,
+        "_current_task_id": task_id,
+        "_previous_outputs": previous_outputs,
+    }
 
     _logger.info(
         f"NODE: analyze_dependencies_node END -> {len(previous_outputs)} outputs available"
     )
-    return state
+    return new_state
 
 
 def should_route_task(state: ProcessingState) -> str:
