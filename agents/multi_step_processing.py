@@ -538,7 +538,7 @@ def gather_parameters_node_multi(state: ProcessingState) -> ProcessingState:
                 f"LLM extracted: {parameters}"
             )
             _logger.error(error_msg)
-            return {"error_message": error_msg}
+            return {**state, "error_message": error_msg}
 
     except Exception as e:
         _logger.error(f"Error extracting parameters: {str(e)}", exc_info=True)
