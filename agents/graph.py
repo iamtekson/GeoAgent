@@ -10,7 +10,7 @@ from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
 
-from agents.multi_step_processing import build_multi_step_processing_graph
+from .multi_step_processing import build_multi_step_processing_graph
 from ..tools import TOOLS
 
 from .states import AgentState

@@ -1,6 +1,6 @@
 [project]
 name = "geo-agent"
-version = "0.3.0"
+version = "0.3.1"
 description = "Plugin for QGIS interaction using LLM. Enables geospatial analysis and data processing through natural language commands."
 readme = "README.md"
 requires-python = ">=3.13"
