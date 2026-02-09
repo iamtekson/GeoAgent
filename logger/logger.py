@@ -6,6 +6,8 @@ This module provides logging functionality that displays messages in the QGIS UI
 instead of saving to files.
 """
 
+import os
+from qgis.core import QgsApplication
 import logging
 from typing import Optional
 from qgis.PyQt.QtWidgets import QTextBrowser
@@ -40,8 +42,7 @@ class UILogHandler(logging.Handler):
     def __init__(
         self,
         text_browser: Optional[QTextBrowser] = None,
-        max_lines: int = 1000,
-        show_debug: bool = False,
+        max_lines: int = 1000,        
     ):
         """
         Initialize UILogHandler.
@@ -54,7 +55,6 @@ class UILogHandler(logging.Handler):
         super().__init__()
         self.text_browser = text_browser
         self.max_lines = max_lines
-        self.show_debug = show_debug
         self.line_count = 0
         
         # Create signal emitter for thread safety
@@ -77,16 +77,7 @@ class UILogHandler(logging.Handler):
             text_browser: QTextBrowser widget to display logs
         """
         self.text_browser = text_browser
-    
-    def set_show_debug(self, show_debug: bool) -> None:
-        """
-        Set whether to show DEBUG level messages.
         
-        Args:
-            show_debug: True to show DEBUG messages, False to hide them
-        """
-        self.show_debug = show_debug
-    
     def emit(self, record: logging.LogRecord) -> None:
         """
         Emit a log record to the UI.
@@ -97,10 +88,6 @@ class UILogHandler(logging.Handler):
         Args:
             record: LogRecord to emit
         """
-        # Filter out DEBUG messages if not in debug mode
-        if record.levelno == logging.DEBUG and not self.show_debug:
-            return
-        
         try:
             # Format the message
             msg = self.format(record)
@@ -192,51 +179,48 @@ class UILogHandler(logging.Handler):
         except Exception:
             pass
 
+def _get_log_file_path() -> str:
+    base = QgsApplication.qgisSettingsDirPath()
+    log_dir = os.path.join(base, "GeoAgent")
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, "geo_agent.log")
 
-def get_logger(
-    name: str,
-    text_browser: Optional[QTextBrowser] = None,
-    show_debug: bool = False,
-    level: int = logging.INFO,
-) -> logging.Logger:
-    """
-    Get a configured logger instance with UI support.
-    
-    This function creates or retrieves a logger with both console and UI handlers.
-    
-    Args:
-        name: Logger name (typically __name__)
-        text_browser: Optional QTextBrowser for UI logging
-        show_debug: Whether to show DEBUG messages (default: False)
-        level: Logging level (default: logging.INFO)
-        
-    Returns:
-        Configured logger instance
-        
-    Example:
-        >>> logger = get_logger("GeoAgent.MyModule", text_browser, show_debug=True)
-        >>> logger.info("This message will appear in both console and UI")
-    """
-    logger = logging.getLogger(name)
+def configure_logger(level: int = logging.INFO) -> logging.Logger:
+    logger = logging.getLogger("geo_agent")
     logger.setLevel(level)
-    
-    # Remove existing handlers to avoid duplicates
-    logger.handlers.clear()
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
-    console_formatter = logging.Formatter(
+    logger.propagate = False
+
+    # Update existing handlers if present
+    for h in logger.handlers:
+        if isinstance(h, logging.FileHandler):
+            h.setLevel(level)
+            return logger
+
+    file_handler = logging.FileHandler(_get_log_file_path(), encoding="utf-8")
+    file_handler.setLevel(level)
+
+    formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    
-    # UI handler
-    if text_browser is not None:
-        ui_handler = UILogHandler(text_browser, show_debug=show_debug)
-        ui_handler.setLevel(level)
-        logger.addHandler(ui_handler)
-    
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
     return logger
+
+def get_logger(name: Optional[str] = None) -> logging.Logger:
+    if name:
+        return logging.getLogger(f"geo_agent.{name}")
+    return logging.getLogger("geo_agent")
+
+def attach_ui_handler(text_browser: QTextBrowser) -> None:
+    logger = logging.getLogger("geo_agent")
+
+    for h in logger.handlers:
+        if isinstance(h, UILogHandler):
+            h.set_text_browser(text_browser)
+            return
+
+    ui_handler = UILogHandler(text_browser)
+    ui_handler.setLevel(logger.level)
+    logger.addHandler(ui_handler)
