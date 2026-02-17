@@ -243,7 +243,7 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
 
 @tool
 def find_processing_algorithm(
-    query: str, provider: Optional[str] = "native", limit: int = 300
+    query: str, provider: Optional[str]=None, limit: int = 300
 ) -> Dict[str, Any]:
     """
     Find algorithms that match a natural language query.
@@ -253,7 +253,7 @@ def find_processing_algorithm(
 
     Args:
         query: Natural language description, e.g., 'buffer layer by 50m'.
-        provider: Optional provider id to filter. "native" by default.
+        provider: Optional provider id to filter (e.g., "native", "gdal", "grass").
         limit: Max number of matches to return.
 
     Returns:
