@@ -253,7 +253,7 @@ def find_processing_algorithm(
 
     Args:
         query: Natural language description, e.g., 'buffer layer by 50m'.
-        provider: Optional provider id to filter. e.g. "native", "gdal" etc.
+        provider: Optional provider id to filter (e.g., "native", "gdal", "grass").
         limit: Max number of matches to return.
 
     Returns:
