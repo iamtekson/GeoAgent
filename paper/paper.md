@@ -64,15 +64,13 @@ This function wraps `processing.run()`, manages temporary outputs, detects outpu
 
 ## Operating Modes
 
-**General Mode** supports exploratory queries (Figure \ref{fig:general-mode}):
+**General Mode** supports exploratory queries (Figure \ref{fig:graph-architecture}A):
 
 - "List all layers and their feature counts"
 - "Show me the attribute schema for the cities layer"
 - "Select all cities with population > 50,000"
 
-![General mode architecture. User prompts are handled through an iterative LLM reasoning loop that invokes QGIS/tool functions as needed for layer inspection, attribute queries, and lightweight operations, then returns summarized responses to the chat interface without entering the multi-step geoprocessing pipeline. \label{fig:general-mode}](./figs/general_agent_architecture.png){width=40%}
-
-**Processing Mode** enables multi-step geoprocessing (Figure \ref{fig:processing-mode}):
+**Processing Mode** enables multi-step geoprocessing (Figure \ref{fig:graph-architecture}B):
 
 - "Buffer all hospitals by 2 km and count intersecting residential zones"
 - "Clip the elevation DEM to the state boundary and compute average elevation by city"
@@ -80,7 +78,7 @@ This function wraps `processing.run()`, manages temporary outputs, detects outpu
 
 The Processing Agent breaks down requests, identifies algorithms (e.g., `native:clip`, `qgis:zonalstatistics`), assembles parameter dictionaries, and executes them. Results are automatically added as map layers, and the chat summarizes what was executed.
 
-![Processing mode architecture. The Processing Agent decomposes a natural-language request and routes each sub-task through either direct LLM reasoning (with tool/QGIS calls) or a geoprocessing pipeline. In the geoprocessing branch, the agent identifies candidate QGIS algorithms, assembles and validates input parameters, and executes the selected operation. Outcomes are evaluated at a success/error checkpoint: failures trigger error analysis and retry, while successful results update the task state and proceed to remaining sub-tasks until completion. \label{fig:processing-mode}](./figs/processing_agent_architecture.png)
+![(A) General mode architecture. User prompts are handled through an iterative LLM reasoning loop that invokes QGIS/tool functions as needed for layer inspection, attribute queries, and lightweight operations, then returns summarized responses to the chat interface without entering the multi-step geoprocessing pipeline. (B) Processing mode architecture. The Processing Agent decomposes a natural-language request and routes each sub-task through either direct LLM reasoning (with tool/QGIS calls) or a geoprocessing pipeline. In the geoprocessing branch, the agent identifies candidate QGIS algorithms, assembles and validates input parameters, and executes the selected operation. Outcomes are evaluated at a success/error checkpoint: failures trigger error analysis and retry, while successful results update the task state and proceed to remaining sub-tasks until completion. \label{fig:graph-architecture}](./figs/graph_architecture.png)
 
 ## Integration with QGIS Processing Ecosystem
 
@@ -90,7 +88,7 @@ GeoAgent leverages QGIS's Processing Framework (~250+ native algorithms plus GDA
 
 The plugin provides an intuitive interface for natural language-driven geospatial analysis (Figure \ref{fig:ui}). The **Chat Panel** offers an input area where users enter natural language prompts and get the agent's response. The **Settings Panel** enables users to select and configure LLM backends, input API keys, adjust model parameters, and set defaults for different analysis types. Finally, the **Logs** section provides debug messages and troubleshooting information, helping users understand the plugin's decision-making process and diagnose issues.
 
-![GeoAgent User Interface. The plugin integrates seamlessly with QGIS, providing a conversational interface for geospatial analysis. Users enter natural language requests in the input panel, view agent responses and results in the chat history, configure LLM backends and parameters in the settings, and monitor execution logs for transparency.](./figs/geoagent_ui.png){#fig:ui}
+![GeoAgent User Interface. The plugin integrates seamlessly with QGIS, providing a conversational interface for geospatial analysis. Users enter natural language requests in the input panel, view agent responses and results in the chat history, configure LLM backends and parameters in the settings, and monitor execution logs for transparency. \label{fig:ui}](./figs/geoagent_ui.png)
 
 # Related Work
 
