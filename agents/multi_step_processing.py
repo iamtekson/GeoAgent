@@ -304,7 +304,7 @@ def discover_algorithms_node_multi(state: ProcessingState) -> ProcessingState:
     _logger.debug(f"Discovering algorithms for task {current_idx + 1}: {query}")
 
     try:
-        result = find_processing_algorithm.invoke({"query": query, "limit": 500})
+        result = find_processing_algorithm.invoke({"query": query, "limit": 1000})
         matches = result.get("matches", [])
         candidates = [
             {"id": m["id"], "name": m["name"], "provider": m["provider"]}
