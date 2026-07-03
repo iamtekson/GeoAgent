@@ -25,7 +25,7 @@ SUPPORTED_MODELS = {
         "default_model": "llama3.2:3b",
         "requires_api_key": False,
     },
-    "ChatGPT": {
+    "OpenAI": {
         "type": "openai",
         "default_model": "gpt-5",
         "requires_api_key": True,
@@ -33,6 +33,11 @@ SUPPORTED_MODELS = {
     "Gemini": {
         "type": "google",
         "default_model": "gemini-3-flash-preview",
+        "requires_api_key": True,
+    },
+    "Anthropic": {
+        "type": "anthropic",
+        "default_model": "claude-sonnet-5",
         "requires_api_key": True,
     },
 }
