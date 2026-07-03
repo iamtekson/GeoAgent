@@ -92,7 +92,7 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
     def _apply_info_icons(self):
         """apply native information icons to tooltip buttons."""
         try:
-            info_icon = self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation)
+            info_icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation)
             for btn_name in (
                 "info_provider",
                 "info_temperature",

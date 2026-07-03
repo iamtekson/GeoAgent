@@ -5,6 +5,7 @@
 [general]
 name=GeoAgent
 qgisMinimumVersion=3.2
+qgisMaximumVersion=4.99
 description=Plugin for QGIS interaction using LLM. Enables geospatial analysis and data processing through natural language commands.
 version=0.3.2
 author=Tek Kshetri, Rabin Ojha

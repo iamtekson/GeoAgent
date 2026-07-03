@@ -66,7 +66,7 @@ def execute_on_main_thread(func, *args, **kwargs):
     QMetaObject.invokeMethod(
         runner, 
         "run_task", 
-        Qt.BlockingQueuedConnection,
+        Qt.ConnectionType.BlockingQueuedConnection,
         Q_ARG(object, func),
         Q_ARG(list, list(args)),
         Q_ARG(dict, kwargs),

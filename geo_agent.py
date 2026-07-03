@@ -30,7 +30,7 @@ from qgis.PyQt.QtCore import (
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
-from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtGui import QFont, QTextCursor
 from qgis.core import Qgis, QgsMessageLog, QgsApplication
 
 # Import the code for the dialog
@@ -307,9 +307,9 @@ class GeoAgent:
                 self.iface.mainWindow(),
                 "Install Dependencies",
                 f"The following packages are required:\n\n{pkg_list}\n\nInstall now?",
-                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return False
         except Exception:
             pass
@@ -345,7 +345,7 @@ class GeoAgent:
                     self.iface.mainWindow(),
                 )
                 progress.setWindowTitle("GeoAgent")
-                progress.setWindowModality(Qt.ApplicationModal)
+                progress.setWindowModality(Qt.WindowModality.ApplicationModal)
                 progress.setAutoClose(True)
                 progress.setAutoReset(True)
                 progress.setMinimumDuration(0)
@@ -546,10 +546,10 @@ class GeoAgent:
             self.dlg = GeoAgentDialog(self.iface.mainWindow())
             # Prefer bottom dock area and allow only bottom
             try:
-                self.dlg.setAllowedAreas(Qt.BottomDockWidgetArea)
+                self.dlg.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
             except Exception:
                 pass
-            self.iface.addDockWidget(Qt.BottomDockWidgetArea, self.dlg)
+            self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dlg)
             # Encourage larger content footprint in bottom area
             try:
                 # Increase minimum height on dock and its main widget if accessible
@@ -561,8 +561,8 @@ class GeoAgent:
                     if w is not None:
                         w.setMinimumHeight(300)
                         sp = w.sizePolicy()
-                        sp.setVerticalPolicy(QSizePolicy.Expanding)
-                        sp.setHorizontalPolicy(QSizePolicy.Expanding)
+                        sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+                        sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
                         w.setSizePolicy(sp)
             except Exception:
                 pass
@@ -610,7 +610,7 @@ class GeoAgent:
         # Try to give it a reasonable initial height in bottom area
         try:
             # Ask for more vertical space in bottom dock area
-            self.iface.mainWindow().resizeDocks([self.dlg], [300], Qt.Vertical)
+            self.iface.mainWindow().resizeDocks([self.dlg], [300], Qt.Orientation.Vertical)
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"Failed to resize: {e}",
@@ -631,23 +631,23 @@ class GeoAgent:
     def showMessage(self, title, msg, button, icon, fontsize=9):
         msgBox = QMessageBox()
         if icon == "Warning":
-            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setIcon(QMessageBox.Icon.Warning)
         if icon == "Info":
-            msgBox.setIcon(QMessageBox.Information)
+            msgBox.setIcon(QMessageBox.Icon.Information)
         msgBox.setWindowTitle(title)
         msgBox.setText(msg)
-        msgBox.setStandardButtons(QMessageBox.Ok)
+        msgBox.setStandardButtons(QMessageBox.StandardButton.Ok)
         msgBox.setStyleSheet(
             "background-color: rgb(83, 83, 83);color: rgb(255, 255, 255);"
         )
         font = QFont()
         font.setPointSize(fontsize)
         msgBox.setFont(font)
-        msgBox.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint)
-        buttonY = msgBox.button(QMessageBox.Ok)
+        msgBox.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+        buttonY = msgBox.button(QMessageBox.StandardButton.Ok)
         buttonY.setText(button)
         buttonY.setFont(font)
-        msgBox.exec_()
+        msgBox.exec()
 
     def send_message(self):
         """Send a message and get a response from the LLM."""
@@ -938,9 +938,9 @@ class GeoAgent:
                         "Ollama Model Not Found",
                         f"The model '{model_str}' is not installed.\n\n"
                         f"Would you like to pull it now? This may take a few minutes.",
-                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     )
-                    if reply == QMessageBox.Yes:
+                    if reply == QMessageBox.StandardButton.Yes:
                         self.iface.messageBar().pushMessage(
                             "GeoAgent",
                             f"Pulling model '{model_str}'. This may take a few minutes...",
@@ -1023,9 +1023,9 @@ class GeoAgent:
 
         # Get cursor and remove the processing indicator line
         cursor = self.dlg.llm_response.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         # Move back to select the "Agent is processing..." line
-        cursor.select(cursor.LineUnderCursor)
+        cursor.select(QTextCursor.SelectionType.LineUnderCursor)
         cursor.removeSelectedText()
         # Remove the extra newline if present
         cursor.deletePreviousChar()

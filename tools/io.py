@@ -356,14 +356,14 @@ def remove_layer(layer_name: str) -> str:
         msg_box.setText(
             f"Do you really want to remove the layer '{layer_name}' from the project?"
         )
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
 
         # get user response
-        response = msg_box.exec_()
+        response = msg_box.exec()
 
-        if response == QMessageBox.Yes:
+        if response == QMessageBox.StandardButton.Yes:
             project.removeMapLayer(layer_id)
             iface.mapCanvas().refresh()
             _logger.info(f"Successfully removed layer '{layer_name}' from project")
