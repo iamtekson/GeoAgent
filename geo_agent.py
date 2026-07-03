@@ -1002,8 +1002,29 @@ class GeoAgent:
             self.app = None
             raise
 
+    def _break_out_of_list(self) -> None:
+        """Detach the chat cursor from any open Qt ordered/unordered list.
+
+        QTextBrowser.append() otherwise keeps numbering or bulleting every
+        subsequent appended paragraph (including plain "User:"/"Agent:"
+        lines) whenever a prior message's markdown-rendered HTML ended
+        inside an <ol>/<ul> - the list is left "open" internally and never
+        closes on its own.
+        """
+        cursor = self.dlg.llm_response.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        current_list = cursor.currentList()
+        if current_list is not None:
+            cursor.insertBlock()
+            current_list.remove(cursor.block())
+            # Also drop the indent the list left behind on this block
+            block_format = cursor.blockFormat()
+            block_format.setIndent(0)
+            cursor.setBlockFormat(block_format)
+
     def _display_user_message(self, message: str) -> None:
         """Display user message in the chat area."""
+        self._break_out_of_list()
         self.dlg.llm_response.append("\n")
         self.dlg.llm_response.append("." * 40)
         self.dlg.llm_response.append(f"\n<b>User:</b> {message}")
@@ -1032,9 +1053,12 @@ class GeoAgent:
 
         # Markdown formatting to HTML for proper rendering
         formatted_response = markdown_to_html(response)
-        
+
         # Append agent response with HTML formatting support
         self.dlg.llm_response.append("\n<b>Agent:</b> " + formatted_response)
+        # The response may have rendered as an HTML list (e.g. a layer
+        # listing) - close it out so it doesn't swallow later messages.
+        self._break_out_of_list()
         self.dlg.llm_response.append("\n" + "." * 40)
 
         # Re-enable buttons only after response is displayed
