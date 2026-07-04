@@ -1,4 +1,5 @@
 from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
+from ..utils.layer_matching import find_layer
 from typing import Optional
 from qgis.core import (
     QgsProject,
@@ -41,24 +42,22 @@ def select_by_attribute(
     try:
         project = QgsProject.instance()
 
-        # Find layer
-        layer = None
-        for lyr in project.mapLayers().values():
-            if (
-                lyr.name().lower() == layer_name.lower()
-                and lyr.type() == QgsMapLayer.VectorLayer
-            ):
-                layer = lyr
-                break
+        # Find layer (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.VectorLayer)
 
         if not layer:
-            return f"**Error:** Layer **{layer_name}** not found."
+            available_layers = [
+                lyr.name()
+                for lyr in project.mapLayers().values()
+                if lyr.type() == QgsMapLayer.VectorLayer
+            ]
+            return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         # Check if field exists
         field_index = layer.fields().indexFromName(field_name)
         if field_index == -1:
             available_fields = [f.name() for f in layer.fields()]
-            _logger.error(f"Field '{field_name}' not found in layer '{layer_name}'. Available fields: {', '.join(available_fields)}")
+            _logger.error(f"Field '{field_name}' not found in layer '{matched_name}'. Available fields: {', '.join(available_fields)}")
             return f"**Error:** Field **{field_name}** not found. Available fields: {', '.join(available_fields)}"
 
         # Build expression based on operator
@@ -106,8 +105,8 @@ def select_by_attribute(
         iface = get_qgis_interface()
         iface.mapCanvas().refresh()
 
-        _logger.info(f"Selected {len(selected_ids)} features in layer '{layer_name}' using attribute filter.")
-        return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** where **{field_name}** {operator} '{value}'."
+        _logger.info(f"Selected {len(selected_ids)} features in layer '{matched_name}' using attribute filter.")
+        return f"**Success:** Selected {len(selected_ids)} features in **{matched_name}** where **{field_name}** {operator} '{value}'."
 
     except Exception as e:
         _logger.error(f"Error selecting by attribute: {str(e)}", exc_info=True)
@@ -141,18 +140,16 @@ def select_by_geometry(
     try:
         project = QgsProject.instance()
 
-        # Find main layer
-        layer = None
-        for lyr in project.mapLayers().values():
-            if (
-                lyr.name().lower() == layer_name.lower()
-                and lyr.type() == QgsMapLayer.VectorLayer
-            ):
-                layer = lyr
-                break
+        # Find main layer (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.VectorLayer)
 
         if not layer:
-            return f"**Error:** Layer **{layer_name}** not found."
+            available_layers = [
+                lyr.name()
+                for lyr in project.mapLayers().values()
+                if lyr.type() == QgsMapLayer.VectorLayer
+            ]
+            return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         selected_ids = []
 
@@ -196,18 +193,18 @@ def select_by_geometry(
             if not reference_layer_name:
                 return f"**Error:** Reference layer required for **{geometry_filter}** operation."
 
-            # Find reference layer
-            ref_layer = None
-            for lyr in project.mapLayers().values():
-                if (
-                    lyr.name().lower() == reference_layer_name.lower()
-                    and lyr.type() == QgsMapLayer.VectorLayer
-                ):
-                    ref_layer = lyr
-                    break
+            # Find reference layer (fuzzy match to tolerate spacing/casing/filler-word differences)
+            ref_layer, ref_matched_name = find_layer(
+                project, reference_layer_name, layer_type=QgsMapLayer.VectorLayer
+            )
 
             if not ref_layer:
-                return f"**Error:** Reference layer **{reference_layer_name}** not found."
+                available_layers = [
+                    lyr.name()
+                    for lyr in project.mapLayers().values()
+                    if lyr.type() == QgsMapLayer.VectorLayer
+                ]
+                return f"**Error:** Reference layer **{reference_layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
             # Get union of reference geometries
             ref_geom = None
@@ -241,8 +238,8 @@ def select_by_geometry(
         iface = get_qgis_interface()
         iface.mapCanvas().refresh()
 
-        _logger.info(f"Selected {len(selected_ids)} features in layer '{layer_name}' using geometry filter.")
-        return f"**Success:** Selected {len(selected_ids)} features in **{layer_name}** using **{geometry_filter}** filter."
+        _logger.info(f"Selected {len(selected_ids)} features in layer '{matched_name}' using geometry filter.")
+        return f"**Success:** Selected {len(selected_ids)} features in **{matched_name}** using **{geometry_filter}** filter."
 
     except Exception as e:
         _logger.error(f"Error selecting by geometry: {str(e)}", exc_info=True)
