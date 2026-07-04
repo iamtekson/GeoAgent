@@ -230,12 +230,17 @@
                </item>
                <item>
                 <property name="text">
-                 <string>ChatGPT</string>
+                 <string>OpenAI</string>
                 </property>
                </item>
                <item>
                 <property name="text">
                  <string>Gemini</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Anthropic</string>
                 </property>
                </item>
               </widget>

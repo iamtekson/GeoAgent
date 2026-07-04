@@ -250,6 +250,7 @@ class GeoAgent:
             "langchain-openai": "langchain_openai",
             "langchain-google-genai": "langchain_google_genai",
             "langchain-ollama": "langchain_ollama",
+            "langchain-anthropic": "langchain_anthropic",
             "requests": "requests",
             "markdown": "markdown",
         }
@@ -896,36 +897,22 @@ class GeoAgent:
                 )
                 if ollama_base_url:
                     client_kwargs["base_url"] = ollama_base_url
-            elif provider == "openai":
-                # try to get the model from UI if available
+            elif provider in ("openai", "google", "anthropic"):
+                # OpenAI, Gemini, and Anthropic share the same "Model Name" field
+                # in the UI; use it if the user overrode it, else the provider default.
                 try:
-                    openai_model_name = (
-                        self.dlg.openai_model_name.text().strip()
+                    ui_model_name = (
+                        self.dlg.model_name.text().strip()
                         if hasattr(self.dlg, "model_name")
                         else ""
                     )
                 except Exception:
-                    openai_model_name = ""
+                    ui_model_name = ""
 
                 client_kwargs["model"] = (
-                    openai_model_name
-                    if openai_model_name
-                    else model_config.get("default_model", "gpt-4")
-                )
-            elif provider == "google":
-                # try to get the model from UI if available
-                try:
-                    google_model_name = (
-                        self.dlg.google_model_name.text().strip()
-                        if hasattr(self.dlg, "model_name")
-                        else ""
-                    )
-                except Exception:
-                    google_model_name = ""
-                client_kwargs["model"] = (
-                    google_model_name
-                    if google_model_name
-                    else model_config.get("default_model", "gemini-3-flash-preview")
+                    ui_model_name
+                    if ui_model_name
+                    else model_config.get("default_model")
                 )
 
             # Validate Ollama availability/model

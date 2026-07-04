@@ -29,7 +29,7 @@ from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSize
 
 from ..logger.logger import UILogHandler
-from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES
+from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES, SUPPORTED_MODELS
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(
@@ -189,6 +189,15 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
             self.stackedWidget.setCurrentIndex(1)
         else:
             self.stackedWidget.setCurrentIndex(0)
+            # Pre-fill the model name field with this provider's default model
+            try:
+                default_model = SUPPORTED_MODELS.get(selection, {}).get(
+                    "default_model", ""
+                )
+                if default_model and hasattr(self, "model_name"):
+                    self.model_name.setText(default_model)
+            except Exception:
+                pass
 
         # refresh tooltips that depend on provider selection
         self._update_model_name_tooltip()
@@ -207,7 +216,7 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
     def _get_model_name_help_text(self) -> str:
         """Return the model-name help text based on current provider selection."""
         selection = self.model.currentText() if hasattr(self, "model") else ""
-        if selection == "ChatGPT":
+        if selection == "OpenAI":
             return (
                 "Select one of the model names from https://platform.openai.com/docs/models\n"
                 "\n"
@@ -220,7 +229,14 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 "\n"
                 "Examples: gemini-3-pro-preview, gemini-2.5-pro, gemini-2.5-flash-preview-09-2025, etc.\n"
             )
-    
+
+        if selection == "Anthropic":
+            return (
+                "Select one of the model names from https://platform.claude.com/docs/en/about-claude/models/overview\n"
+                "\n"
+                "Examples: claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5, etc.\n"
+            )
+
         return ""
 
     def _on_model_name_info_clicked(self):
