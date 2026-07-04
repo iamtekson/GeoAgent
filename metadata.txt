@@ -17,6 +17,9 @@ license=MIT
 tracker=https://github.com/iamtekson/GeoAgent/issues
 repository=https://github.com/iamtekson/GeoAgent
 changelog=
+    v0.5.0
+        - Added support for Anthropic Models
+        - Save settings and check dependency installation function implementation
     v0.4.0
         - Added support for QGIS 4.x.x
         - Fixed bug on UI
