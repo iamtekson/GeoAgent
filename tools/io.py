@@ -18,6 +18,7 @@ from qgis.PyQt.QtWidgets import QMessageBox
 # langchain tool decorator
 from langchain_core.tools import tool
 from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
+from ..utils.layer_matching import find_layer
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
@@ -198,12 +199,8 @@ def zoom_to_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -216,8 +213,8 @@ def zoom_to_layer(layer_name: str) -> str:
         # refresh canvas
         iface.mapCanvas().refresh()
 
-        _logger.info(f"Successfully zoomed to layer '{layer_name}'")
-        return f"**Success:** Zoomed to layer **{layer_name}**."
+        _logger.info(f"Successfully zoomed to layer '{matched_name}'")
+        return f"**Success:** Zoomed to layer **{matched_name}**."
 
     except Exception as e:
         _logger.error(f"Error zooming to layer: {str(e)}", exc_info=True)
@@ -244,12 +241,8 @@ def get_layer_columns(layer_name: str) -> str:
     try:
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -257,18 +250,18 @@ def get_layer_columns(layer_name: str) -> str:
 
         # Check if it's a vector layer
         if layer.type() != QgsMapLayer.VectorLayer:
-            _logger.error(f"Layer '{layer_name}' is not a vector layer")
-            return f"**Error:** **{layer_name}** is not a vector layer. Column information is only available for vector layers."
+            _logger.error(f"Layer '{matched_name}' is not a vector layer")
+            return f"**Error:** **{matched_name}** is not a vector layer. Column information is only available for vector layers."
 
         # Get fields
         fields = layer.fields()
 
         if fields.count() == 0:
-            _logger.debug(f"Layer '{layer_name}' has no attribute fields")
-            return f"Layer '{layer_name}' has no attribute fields."
+            _logger.debug(f"Layer '{matched_name}' has no attribute fields")
+            return f"Layer '{matched_name}' has no attribute fields."
 
         column_info = []
-        column_info.append(f"Layer: {layer_name}")
+        column_info.append(f"Layer: {matched_name}")
         column_info.append(f"Total columns: {fields.count()}")
         column_info.append(f"Total features: {layer.featureCount()}")
         column_info.append(
@@ -302,7 +295,7 @@ def get_layer_columns(layer_name: str) -> str:
             if sample_values:
                 column_info.append(f"   {sample_values}")
 
-        _logger.info(f"Retrieved {fields.count()} columns from layer '{layer_name}'")
+        _logger.info(f"Retrieved {fields.count()} columns from layer '{matched_name}'")
         return "\n".join(column_info)
 
     except Exception as e:
@@ -335,14 +328,8 @@ def remove_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        layer_id = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                layer_id = lyr.id()
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -351,10 +338,12 @@ def remove_layer(layer_name: str) -> str:
             )
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
+        layer_id = layer.id()
+
         msg_box = QMessageBox(iface.mainWindow())
         msg_box.setWindowTitle("Remove Layer")
         msg_box.setText(
-            f"Do you really want to remove the layer '{layer_name}' from the project?"
+            f"Do you really want to remove the layer '{matched_name}' from the project?"
         )
         msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
@@ -366,8 +355,8 @@ def remove_layer(layer_name: str) -> str:
         if response == QMessageBox.StandardButton.Yes:
             project.removeMapLayer(layer_id)
             iface.mapCanvas().refresh()
-            _logger.info(f"Successfully removed layer '{layer_name}' from project")
-            return f"**Success:** Layer **{layer_name}** has been removed from the project."
+            _logger.info(f"Successfully removed layer '{matched_name}' from project")
+            return f"**Success:** Layer **{matched_name}** has been removed from the project."
 
     except Exception as e:
         _logger.error(f"Error removing layer: {str(e)}", exc_info=True)

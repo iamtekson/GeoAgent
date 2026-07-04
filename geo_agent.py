@@ -29,7 +29,7 @@ from qgis.PyQt.QtCore import (
     QThread,
 )
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy, QProgressDialog
+from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy
 from qgis.PyQt.QtGui import QFont, QTextCursor
 from qgis.core import Qgis, QgsMessageLog, QgsApplication
 
@@ -38,7 +38,6 @@ from .dialogs.geo_agent_dialog import GeoAgentDialog
 
 # Import agent and LLM components
 from .config.settings import (
-    API_KEY_FILE,
     SUPPORTED_MODELS,
     DEFAULT_MODEL,
     DEBUG_MODE,
@@ -54,11 +53,9 @@ from .utils.canvas_refresh import (
     MainThreadRunner
 )
 from .utils.markdown_converter import markdown_to_html
+from .utils.dependencies import get_missing_packages, DependencyInstallWorker
 from typing import Optional
 import importlib
-import subprocess
-import sys
-import re
 
 import os
 import os.path
@@ -109,13 +106,13 @@ class GeoAgent:
         self.llm = None
         self.app = None
         self.current_model = DEFAULT_MODEL
-        self.api_key = self._load_api_key()
         self.thread_id = "geo-agent"
         self._has_started_thread = False
         self._last_temperature = None
         self._error_log_path = os.path.join(self.plugin_dir, "geo_agent_error.log")
         self._worker_thread: Optional[QThread] = None
         self._is_processing = False
+        self._deps_worker: Optional[QThread] = None
 
     def _log_error(self, context: str, exc: Exception):
         try:
@@ -241,148 +238,73 @@ class GeoAgent:
         except Exception:
             pass
 
-    def _ensure_dependencies_installed(self):
-        """Ensure required Python packages are installed via pyproject.toml."""
-        pkg_to_import = {
-            "langgraph": "langgraph",
-            "langchain-core": "langchain_core",
-            "langchain-community": "langchain_community",
-            "langchain-openai": "langchain_openai",
-            "langchain-google-genai": "langchain_google_genai",
-            "langchain-ollama": "langchain_ollama",
-            "langchain-anthropic": "langchain_anthropic",
-            "requests": "requests",
-            "markdown": "markdown",
-        }
+    def _notify_if_dependencies_missing(self):
+        """Show a non-blocking hint if required packages aren't installed yet.
 
-        # Read dependencies from pyproject.toml
-        deps = []
-        pyproject_path = os.path.join(self.plugin_dir, "pyproject.toml")
+        This only checks and informs - it never installs anything on its own.
+        Installation is a deliberate action via the Settings tab's
+        "Check / Install Dependencies" button.
+        """
         try:
-            with open(pyproject_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            try:
-                import tomllib  # Python 3.11+
-
-                data = tomllib.loads(content)
-                deps = data.get("project", {}).get("dependencies", []) or []
-            except Exception:
-                m = re.search(r"dependencies\s*=\s*\[(.*)\]", content, re.DOTALL)
-                if m:
-                    raw = m.group(1)
-                    for line in raw.splitlines():
-                        line = line.strip().strip(",")
-                        if not line:
-                            continue
-                        # handle both single and double quoted strings
-                        if (line.startswith('"') and line.endswith('"')) or (line.startswith("'") and line.endswith("'")):
-                            deps.append(line[1:-1])
+            if get_missing_packages():
+                self.iface.messageBar().pushMessage(
+                    "GeoAgent",
+                    "Some required packages aren't installed yet. "
+                    "Go to the Settings tab and click 'Check / Install Dependencies'.",
+                    level=Qgis.Warning,
+                    duration=QGIS_MESSAGE_DURATION,
+                )
         except Exception:
-            deps = []
+            pass
 
-        # Normalize package names (strip version specifiers)
-        pkgs = []
-        for d in deps:
-            name = d.split(";")[0].split(" ")[0]
-            name = name.split(">=")[0].split("==")[0]
-            pkgs.append(name)
-
-        # Determine missing based on import availability
-        missing = []
-        for pkg in pkgs:
-            import_name = pkg_to_import.get(pkg)
-            if not import_name:
-                continue
-            try:
-                importlib.import_module(import_name)
-            except Exception:
-                missing.append(pkg)
-
+    def _on_install_deps_clicked(self):
+        """Handle the Settings tab's "Check / Install Dependencies" button."""
+        missing = get_missing_packages()
         if not missing:
-            return True
+            self.dlg.deps_status_label.setText("All dependencies are installed.")
+            self.dlg.deps_status_label.setStyleSheet("color: green;")
+            return
 
-        # Ask user to confirm installation
-        try:
-            pkg_list = "\n".join(missing)
-            reply = QMessageBox.question(
-                self.iface.mainWindow(),
-                "Install Dependencies",
-                f"The following packages are required:\n\n{pkg_list}\n\nInstall now?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return False
-        except Exception:
-            pass
+        pkg_list = "\n".join(missing)
+        reply = QMessageBox.question(
+            self.iface.mainWindow(),
+            "Install Dependencies",
+            f"The following packages are required:\n\n{pkg_list}\n\nInstall now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-        # Inform user via message bar
-        try:
-            self.iface.messageBar().pushMessage(
-                "GeoAgent",
-                f"Installing missing dependencies: {' '.join(missing)}",
-                level=Qgis.Info,
-                duration=0,
-            )
-        except Exception:
-            pass
+        self.dlg.install_deps_button.setEnabled(False)
+        self.dlg.deps_progress_bar.setVisible(True)
+        self.dlg.deps_progress_bar.setValue(0)
+        self.dlg.deps_status_label.setText(f"Installing: {', '.join(missing)}...")
+        self.dlg.deps_status_label.setStyleSheet("")
 
-        # Install missing packages
-        try:
-            py_exec = sys.executable
-            lower = py_exec.lower()
-            if lower.endswith("qgis-bin.exe") or lower.endswith("qgis-ltr-bin.exe"):
-                py_exec = os.path.join(os.path.dirname(py_exec), "python.exe")
-            elif lower.endswith("pythonw.exe"):
-                py_exec = os.path.join(os.path.dirname(py_exec), "python.exe")
+        self._deps_worker = DependencyInstallWorker(missing)
+        self._deps_worker.progress.connect(self._on_deps_progress)
+        self._deps_worker.finished_with_result.connect(self._on_deps_finished)
+        self._deps_worker.start()
 
-            # Progress dialog during installation
-            progress = None
-            try:
-                progress = QProgressDialog(
-                    "Installing dependencies...",
-                    None,
-                    0,
-                    len(missing),
-                    self.iface.mainWindow(),
-                )
-                progress.setWindowTitle("GeoAgent")
-                progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-                progress.setAutoClose(True)
-                progress.setAutoReset(True)
-                progress.setMinimumDuration(0)
-            except Exception:
-                progress = None
+    def _on_deps_progress(self, percent: int, message: str):
+        self.dlg.deps_progress_bar.setValue(percent)
+        self.dlg.deps_status_label.setText(message)
 
-            for idx, pkg in enumerate(missing, start=1):
-                subprocess.run(
-                    [py_exec, "-m", "pip", "install", "--upgrade", pkg], check=True
-                )
-                try:
-                    if progress:
-                        progress.setValue(idx)
-                        QCoreApplication.processEvents()
-                except Exception:
-                    pass
-
-            self.iface.messageBar().pushMessage(
-                "GeoAgent",
-                "Dependencies installed successfully.",
-                level=Qgis.Success,
-                duration=QGIS_MESSAGE_DURATION,
-            )
-            try:
-                if progress:
-                    progress.close()
-            except Exception:
-                pass
-            return True
-        except Exception as e:
-            self.iface.messageBar().pushMessage(
-                "GeoAgent",
-                f"Failed to install dependencies: {e}",
-                level=Qgis.Critical,
-                duration=QGIS_MESSAGE_DURATION,
-            )
+    def _on_deps_finished(self, success: bool, message: str):
+        self.dlg.install_deps_button.setEnabled(True)
+        self.dlg.deps_progress_bar.setVisible(False)
+        self.dlg.deps_status_label.setText(message)
+        self.dlg.deps_status_label.setStyleSheet("color: green;" if success else "color: red;")
+        self.iface.messageBar().pushMessage(
+            "GeoAgent",
+            message,
+            level=Qgis.Success if success else Qgis.Critical,
+            duration=QGIS_MESSAGE_DURATION,
+        )
+        if self._deps_worker:
+            self._deps_worker.quit()
+            self._deps_worker.wait()
+            self._deps_worker = None
 
     def _get_message_classes(self):
         msgs_mod = importlib.import_module("langchain_core.messages")
@@ -518,8 +440,9 @@ class GeoAgent:
 
     def run(self):
         """Run method that performs all the real work"""
-        # Ensure dependencies before loading graph or message classes
-        self._ensure_dependencies_installed()
+        # Only hint if something's missing - installation is a deliberate
+        # action via the Settings tab, not automatic on opening the panel.
+        self._notify_if_dependencies_missing()
 
         # Ensure MainThreadRunner is initialized (should be done in initGui())
         # MainThreadRunner is a QObject that must be created on the main Qt thread
@@ -554,13 +477,13 @@ class GeoAgent:
             # Encourage larger content footprint in bottom area
             try:
                 # Increase minimum height on dock and its main widget if accessible
-                self.dlg.setMinimumHeight(300)
+                self.dlg.setMinimumHeight(380)
                 if hasattr(self.dlg, "widget") and callable(
                     getattr(self.dlg, "widget")
                 ):
                     w = self.dlg.widget()
                     if w is not None:
-                        w.setMinimumHeight(300)
+                        w.setMinimumHeight(380)
                         sp = w.sizePolicy()
                         sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
                         sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
@@ -595,6 +518,15 @@ class GeoAgent:
                 except Exception:
                     pass
                 self.dlg.clear_ans.clicked.connect(self.clear_chat)
+            # Wire up dependency install button
+            if hasattr(self.dlg, "install_deps_button"):
+                try:
+                    self.dlg.install_deps_button.clicked.disconnect()
+                except Exception:
+                    pass
+                self.dlg.install_deps_button.clicked.connect(
+                    self._on_install_deps_clicked
+                )
 
             # Setup unified UI logging once the dialog exists
             try:
@@ -611,7 +543,7 @@ class GeoAgent:
         # Try to give it a reasonable initial height in bottom area
         try:
             # Ask for more vertical space in bottom dock area
-            self.iface.mainWindow().resizeDocks([self.dlg], [300], Qt.Orientation.Vertical)
+            self.iface.mainWindow().resizeDocks([self.dlg], [380], Qt.Orientation.Vertical)
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"Failed to resize: {e}",
@@ -860,12 +792,11 @@ class GeoAgent:
             model_config = SUPPORTED_MODELS[model_name]
             provider = model_config["type"]
 
-            # Get API key if required
+            # Get API key if required (the field is pre-filled from QSettings
+            # via GeoAgentDialog's per-provider save/restore, if previously saved)
             api_key = None
             if model_config.get("requires_api_key"):
                 api_key = self.dlg.custom_apikey.text().strip()
-                if not api_key:
-                    api_key = self.api_key
                 if not api_key:
                     raise ValueError(f"API key required for {model_name}")
 
@@ -970,16 +901,23 @@ class GeoAgent:
 
         except Exception as e:
             self._log_error("_initialize_agent", e)
+            if isinstance(e, (ImportError, ModuleNotFoundError)):
+                error_msg = (
+                    f"Missing package for {model_name}: {str(e)}. "
+                    "Go to Settings > 'Check / Install Dependencies'."
+                )
+            else:
+                error_msg = f"Failed to initialize {model_name}: {str(e)}"
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
-                f"Failed to initialize {model_name}: {str(e)}",
+                error_msg,
                 level=Qgis.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
             try:
                 self.showMessage(
                     "Initialization Error",
-                    f"Failed to initialize {model_name}: {str(e)}\n\nSee full log at:\n{self._error_log_path}",
+                    f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
                     "OK",
                     "Warning",
                 )
@@ -1058,30 +996,6 @@ class GeoAgent:
         scroll_bar = self.dlg.llm_response.verticalScrollBar()
         scroll_bar.setValue(scroll_bar.maximum())
 
-    def _load_api_key(self) -> str:
-        """Load API key from file if it exists."""
-        try:
-            if os.path.exists(API_KEY_FILE):
-                with open(API_KEY_FILE, "r") as f:
-                    return f.read().strip()
-        except Exception:
-            pass
-        return ""
-
-    def _save_api_key(self, api_key: str) -> None:
-        """Save API key to file."""
-        try:
-            os.makedirs(os.path.dirname(API_KEY_FILE), exist_ok=True)
-            with open(API_KEY_FILE, "w") as f:
-                f.write(api_key)
-            self.api_key = api_key
-        except Exception as e:
-            self.iface.messageBar().pushMessage(
-                "GeoAgent",
-                f"Failed to save API key: {str(e)}",
-                level=Qgis.Warning,
-                duration=QGIS_MESSAGE_DURATION,
-            )
 
     def export_chat(self) -> None:
         """Export chat history to a text file."""

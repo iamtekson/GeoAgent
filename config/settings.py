@@ -2,13 +2,6 @@
 """
 Configuration settings for GeoAgent plugin.
 """
-import os
-
-# Plugin root directory
-PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# API Keys
-API_KEY_FILE = os.path.join(PLUGIN_DIR, "api_key.txt")
 
 # debug
 DEBUG_MODE = False
