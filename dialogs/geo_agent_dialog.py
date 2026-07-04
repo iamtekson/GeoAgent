@@ -26,7 +26,7 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtCore import QSize
+from qgis.PyQt.QtCore import QSize, QSettings
 
 from ..logger.logger import UILogHandler
 from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES, SUPPORTED_MODELS
@@ -35,6 +35,10 @@ from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES, SUPPORTED_MODELS
 FORM_CLASS, _ = uic.loadUiType(
     os.path.join(os.path.dirname(__file__), "geo_agent_dialog_base.ui")
 )
+
+# QSettings key namespace for persisted GeoAgent settings (provider, model,
+# temperature, max tokens, and per-provider API keys) so they survive a QGIS restart.
+SETTINGS_PREFIX = "GeoAgent/"
 
 
 class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
@@ -62,6 +66,10 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Setup connections for mode switching
         self.setup_connections()
+
+        # Restore previously saved settings (provider, model, temperature,
+        # max tokens, API keys), overriding the defaults set above.
+        self._load_persisted_settings()
 
     def _setup_logging(self):
         """Initialize the UI log handler for the logs tab."""
@@ -179,6 +187,10 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         if hasattr(self, "info_model_name"):
             self.info_model_name.clicked.connect(self._on_model_name_info_clicked)
 
+        # Persist settings on demand
+        if hasattr(self, "save_settings"):
+            self.save_settings.clicked.connect(self._save_settings)
+
         # Set the initial state
         self.update_ui_visibility()
 
@@ -196,6 +208,17 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 )
                 if default_model and hasattr(self, "model_name"):
                     self.model_name.setText(default_model)
+            except Exception:
+                pass
+            # Restore this provider's saved API key, if any (each provider
+            # keeps its own key so switching providers doesn't lose the others).
+            try:
+                if hasattr(self, "custom_apikey"):
+                    settings = QSettings()
+                    saved_key = settings.value(
+                        f"{SETTINGS_PREFIX}api_key_{selection}", "", type=str
+                    )
+                    self.custom_apikey.setText(saved_key)
             except Exception:
                 pass
 
@@ -247,3 +270,94 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 QtWidgets.QMessageBox.information(self, "Information", message)
         except Exception:
             pass
+
+    def _load_persisted_settings(self):
+        """Restore provider, model, temperature, max tokens, Ollama fields,
+        and the current provider's API key from QSettings, if previously saved."""
+        try:
+            settings = QSettings()
+
+            provider = settings.value(f"{SETTINGS_PREFIX}provider", "", type=str)
+            if provider and hasattr(self, "model"):
+                idx = self.model.findText(provider)
+                if idx >= 0:
+                    self.model.setCurrentIndex(idx)
+
+            # Restore these after the provider switch above, since selecting a
+            # provider auto-fills model_name/custom_apikey with defaults that
+            # a saved value should override.
+            model_name = settings.value(f"{SETTINGS_PREFIX}model_name", "", type=str)
+            if model_name and hasattr(self, "model_name"):
+                self.model_name.setText(model_name)
+
+            api_key = settings.value(
+                f"{SETTINGS_PREFIX}api_key_{self.model.currentText()}", "", type=str
+            )
+            if hasattr(self, "custom_apikey"):
+                self.custom_apikey.setText(api_key)
+
+            temperature = settings.value(f"{SETTINGS_PREFIX}temperature", None)
+            if temperature is not None and hasattr(self, "temperature"):
+                self.temperature.setValue(float(temperature))
+
+            max_tokens = settings.value(f"{SETTINGS_PREFIX}max_tokens", None)
+            if max_tokens is not None and hasattr(self, "max_tokens"):
+                self.max_tokens.setValue(int(max_tokens))
+
+            ollama_base_url = settings.value(
+                f"{SETTINGS_PREFIX}ollama_base_url", "", type=str
+            )
+            if ollama_base_url and hasattr(self, "ollama_base_url"):
+                self.ollama_base_url.setText(ollama_base_url)
+
+            ollama_model_name = settings.value(
+                f"{SETTINGS_PREFIX}ollama_model_name", "", type=str
+            )
+            if ollama_model_name and hasattr(self, "ollama_model_name"):
+                self.ollama_model_name.setText(ollama_model_name)
+        except Exception:
+            pass
+
+    def _save_settings(self):
+        """Persist provider, model, temperature, max tokens, Ollama fields,
+        and the current provider's API key so they survive a QGIS restart."""
+        try:
+            settings = QSettings()
+            provider = self.model.currentText() if hasattr(self, "model") else ""
+
+            settings.setValue(f"{SETTINGS_PREFIX}provider", provider)
+            if hasattr(self, "model_name"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}model_name", self.model_name.text().strip()
+                )
+            if hasattr(self, "custom_apikey"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}api_key_{provider}",
+                    self.custom_apikey.text().strip(),
+                )
+            if hasattr(self, "temperature"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}temperature", self.temperature.value()
+                )
+            if hasattr(self, "max_tokens"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}max_tokens", self.max_tokens.value()
+                )
+            if hasattr(self, "ollama_base_url"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}ollama_base_url",
+                    self.ollama_base_url.text().strip(),
+                )
+            if hasattr(self, "ollama_model_name"):
+                settings.setValue(
+                    f"{SETTINGS_PREFIX}ollama_model_name",
+                    self.ollama_model_name.text().strip(),
+                )
+
+            if hasattr(self, "settings_status_label"):
+                self.settings_status_label.setText("Settings saved.")
+                self.settings_status_label.setStyleSheet("color: green;")
+        except Exception as e:
+            if hasattr(self, "settings_status_label"):
+                self.settings_status_label.setText(f"Failed to save settings: {e}")
+                self.settings_status_label.setStyleSheet("color: red;")

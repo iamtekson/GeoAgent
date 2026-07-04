@@ -28,7 +28,7 @@ bibliography: paper.bib
 
 # Summary
 
-GeoAgent is an open-source QGIS plugin that enables users to perform geospatial analysis through natural language commands, powered by large language models (LLMs). The plugin supports multiple LLM backends (Ollama for local inference, OpenAI, and Google Gemini for cloud services) and operates in two modes: **General mode** for data exploration and querying attributes, and **Processing mode** for automated geoprocessing workflows. By abstracting traditional GIS complexity through conversational interaction, GeoAgent lowers barriers to advanced geospatial analysis for non-specialist users while maintaining transparency through detailed chat transcripts and automatic result visualization in QGIS.
+GeoAgent is an open-source QGIS plugin that enables users to perform geospatial analysis through natural language commands, powered by large language models (LLMs). The plugin supports multiple LLM backends (Ollama for local inference, and OpenAI, Google Gemini, and Anthropic for cloud services) and operates in two modes: **General mode** for data exploration and querying attributes, and **Processing mode** for automated geoprocessing workflows. By abstracting traditional GIS complexity through conversational interaction, GeoAgent lowers barriers to advanced geospatial analysis for non-specialist users while maintaining transparency through detailed chat transcripts and automatic result visualization in QGIS.
 
 # Statement of Need
 
@@ -58,9 +58,9 @@ This function wraps `processing.run()`, manages temporary outputs, detects outpu
 
 **Tool System:** A structured registry maps natural-language intents to QGIS operations, organized by function: layer I/O, attribute operations, spatial operations (buffer, clip, intersect), and utilities. Each tool includes metadata (description, parameters, types, constraints) that guides LLM parameter assignment.
 
-**Multi-Backend LLM Integration:** GeoAgent abstracts LLM communication behind a provider interface supporting Ollama (local, privacy-preserving), OpenAI, and Google Gemini. Users configure backends and models via a settings dialog; the plugin handles prompt formatting, temperature setting and token limits.
+**Multi-Backend LLM Integration:** GeoAgent abstracts LLM communication behind a provider interface supporting Ollama (local, privacy-preserving), OpenAI, Google Gemini, and Anthropic. Users configure backends and models via a settings dialog; the plugin handles prompt formatting, temperature setting and token limits.
 
-![GeoAgent system architecture. Natural-language requests are routed to either a General Agent for exploratory operations or a Processing Agent for workflow execution. The Processing branch maps requests to QGIS algorithms through a structured tool registry, constructs execution parameters, and returns results to the QGIS project and chat context. An LLM provider abstraction supports interchangeable backends (Ollama, OpenAI, Gemini), enabling both local and cloud deployment. \label{fig:architecture}](./figs/geoagent_overall_architecture.png)
+![GeoAgent system architecture. Natural-language requests are routed to either a General Agent for exploratory operations or a Processing Agent for workflow execution. The Processing branch maps requests to QGIS algorithms through a structured tool registry, constructs execution parameters, and returns results to the QGIS project and chat context. An LLM provider abstraction supports interchangeable backends (Ollama, OpenAI, Gemini, Anthropic), enabling both local and cloud deployment. \label{fig:architecture}](./figs/geoagent_overall_architecture.png)
 
 ## Operating Modes
 
@@ -106,7 +106,7 @@ GeoAgent uniquely combines: (1) direct QGIS embedding with processing execution,
 
 # Discussion and Future Work
 
-GeoAgent demonstrates that LLM-driven interfaces can simplify geospatial analysis workflows. The multi-backend architecture allows organizations to choose between local (Ollama) and cloud-based (OpenAI, Gemini) LLM services based on their privacy and performance needs.
+GeoAgent demonstrates that LLM-driven interfaces can simplify geospatial analysis workflows. The multi-backend architecture allows organizations to choose between local (Ollama) and cloud-based (OpenAI, Gemini, Anthropic) LLM services based on their privacy and performance needs.
 
 Future work includes expanding the tool registry to support more QGIS algorithms, implementing parameter confirmation dialogs for user validation, and conducting systematic benchmarks across different LLM backends and QGIS versions to evaluate performance and usability.
 
