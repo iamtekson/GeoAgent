@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 Geoprocessing tools for QGIS operations.
-Provides tools for geometric operations (buffer, clip, dissolve, etc.) and spatial filtering/selection.
+
+Provides algorithm discovery (over the FULL processing registry, all providers),
+parameter inspection, and execution with results loaded into the QGIS project.
 """
+import re
 from typing import Optional, List, Dict, Any
 from langchain_core.tools import tool
 from qgis.core import (
@@ -14,93 +17,157 @@ from qgis.core import (
 
 from ..config.constants import RASTER_EXTENSIONS
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Algorithm catalog (cached once per session; the registry rarely changes)
+# ─────────────────────────────────────────────────────────────────────────────
+_ALGORITHM_CATALOG: Optional[List[Dict[str, Any]]] = None
+
+_STOPWORDS = {
+    "the", "a", "an", "of", "to", "for", "with", "and", "or", "in", "on", "by",
+    "from", "layer", "layers", "using", "each", "all", "my", "this", "that",
+    "create", "make", "new", "map", "file", "data",
+}
+
+# Small bonus layer of common GIS phrasing -> algorithm vocabulary. NOT meant
+# to be exhaustive: the workflow passes LLM-generated `keywords` per task,
+# which is the generic mechanism; this map just gives frequent phrasings a
+# floor when no keywords are provided.
+_SYNONYMS = {
+    "merge": ["merge", "union", "dissolve"],
+    "combine": ["union", "merge", "dissolve"],
+    "join": ["join", "union"],
+    "clip": ["clip", "mask", "extract"],
+    "crop": ["clip", "mask"],
+    "cut": ["clip"],
+    "average": ["mean", "statistics", "zonal"],
+    "statistics": ["statistics", "stats", "zonal"],
+    "stats": ["statistics", "zonal"],
+    "reproject": ["reproject", "warp", "crs", "transform"],
+    "projection": ["reproject", "crs"],
+    "distance": ["distance", "buffer", "proximity"],
+    "simplify": ["simplify", "generalize", "smooth"],
+    "interpolate": ["interpolate", "idw", "tin"],
+    "slope": ["slope", "terrain"],
+    "elevation": ["dem", "terrain", "elevation"],
+    "centroid": ["centroid", "center"],
+}
+
+
+def get_algorithm_catalog(refresh: bool = False) -> List[Dict[str, Any]]:
+    """Return all registered algorithms with searchable metadata, cached."""
+    global _ALGORITHM_CATALOG
+    if _ALGORITHM_CATALOG is not None and not refresh:
+        return _ALGORITHM_CATALOG
+
+    catalog: List[Dict[str, Any]] = []
+    registry = QgsApplication.processingRegistry()
+    for alg in registry.algorithms():
+        try:
+            tags = [str(t).lower() for t in (alg.tags() or [])]
+        except Exception:
+            tags = []
+        try:
+            description = alg.shortDescription() or ""
+        except Exception:
+            description = ""
+        catalog.append(
+            {
+                "id": alg.id(),
+                "name": alg.displayName(),
+                "provider": alg.provider().id(),
+                "tags": tags,
+                "description": description,
+            }
+        )
+    _ALGORITHM_CATALOG = catalog
+    return catalog
+
+
+def _query_tokens(query: str) -> List[str]:
+    """Tokenize a task description and expand with GIS synonyms."""
+    words = re.findall(r"[a-z]+", query.lower())
+    tokens = [w for w in words if w not in _STOPWORDS and len(w) > 2]
+    expanded = list(tokens)
+    for t in tokens:
+        expanded.extend(_SYNONYMS.get(t, []))
+    return list(dict.fromkeys(expanded))  # dedupe, keep order
+
+
+def _score_algorithm(tokens: List[str], entry: Dict[str, Any]) -> float:
+    """Cheap lexical relevance of one catalog entry against query tokens."""
+    name_words = set(re.findall(r"[a-z]+", entry["name"].lower()))
+    alg_id = entry["id"].lower()
+    tags = entry["tags"]
+    desc = entry["description"].lower()
+
+    score = 0.0
+    for t in tokens:
+        if t in name_words:
+            score += 3.0
+        elif any(t in w for w in name_words):
+            score += 1.5
+        if t in alg_id:
+            score += 1.5
+        if any(t == tag or t in tag for tag in tags):
+            score += 2.0
+        if desc and t in desc:
+            score += 0.5
+    # Slight preference for native algorithms on ties
+    if score > 0 and entry["provider"] == "native":
+        score += 0.5
+    return score
 
 
 @tool
-def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
+def find_processing_algorithm(
+    query: str,
+    keywords: Optional[List[str]] = None,
+    provider: Optional[str] = None,
+    limit: int = 30,
+) -> Dict[str, Any]:
     """
-    Execute a processing algorithm and load results into QGIS map.
+    Find processing algorithms matching a natural-language task description.
+
+    Scores EVERY registered algorithm (all providers) locally against the
+    query using name/id/tags/description, and returns the top candidates.
+    An empty 'matches' list means nothing scored — callers should fall back
+    to selecting from the full catalog.
+
+    Args:
+        query: Natural language description, e.g., 'buffer layer by 50m'.
+        keywords: Optional extra search terms/synonyms (e.g. LLM-generated:
+            ["median", "percentile", "quantile", "zonal", "statistics"]).
+        provider: Optional provider id to filter (e.g., "native", "gdal").
+        limit: Max number of matches to return.
+
+    Returns:
+        Dict with 'matches' (list of {id, name, provider, tags, description}),
+        'count', and 'total' (registry size).
     """
     try:
-        import processing
-        from qgis.core import QgsProject, QgsMapLayer
+        catalog = get_algorithm_catalog()
+        if provider:
+            catalog = [e for e in catalog if e["provider"].lower() == provider.lower()]
 
-        # 1. Use QGIS standard for temporary outputs if not specified
-        if "OUTPUT" not in parameters:
-            parameters["OUTPUT"] = "TEMPORARY_OUTPUT"
+        tokens = _query_tokens(query)
+        for kw in keywords or []:
+            for t in _query_tokens(str(kw)):
+                if t not in tokens:
+                    tokens.append(t)
 
-        # 2. Execute the algorithm
-        result = processing.run(algorithm, parameters, feedback=None)
-
-        layer_added = False
-        output_layer_obj = None
-
-        # 3. Find the output layer in the results
-        # Algorithms usually return the layer object or a string path
-        for key in ["OUTPUT", "output", "OUTPUT_LAYER", "output_layer"]:
-            if key in result:
-                val = result[key]
-                if isinstance(val, QgsMapLayer):
-                    output_layer_obj = val
-                    break
-                elif isinstance(val, str):
-                    # It's a file path or memory URI, we'll handle it below
-                    output_layer_obj = val
-                    break
-
-        # Fallback: find any layer in the result
-        if not output_layer_obj:
-            for val in result.values():
-                if isinstance(val, QgsMapLayer):
-                    output_layer_obj = val
-                    break
-
-        # 4. Add to project
-        if output_layer_obj:
-            if isinstance(output_layer_obj, QgsMapLayer):
-                # It's already a layer object
-                if not output_layer_obj.name():
-                    output_layer_obj.setName(f"Result - {algorithm.split(':')[-1]}")
-                QgsProject.instance().addMapLayer(output_layer_obj)
-                layer_added = True
-            elif isinstance(output_layer_obj, str):
-                from qgis.core import QgsRasterLayer, QgsVectorLayer
-                import os
-
-                # Determine if it's a raster or vector file by extension
-                file_ext = os.path.splitext(output_layer_obj)[-1].lower()
-                is_raster = file_ext in RASTER_EXTENSIONS or 'raster' in output_layer_obj.lower()
-                layer_name = f"Result - {algorithm.split(':')[-1]}"
-                
-                if is_raster:
-                    # Load as raster layer directly using QgsRasterLayer
-                    lyr = QgsRasterLayer(output_layer_obj, layer_name)
-                    if lyr and lyr.isValid():
-                        QgsProject.instance().addMapLayer(lyr)
-                        layer_added = True
-                else:
-                    # Load as vector layer directly using QgsVectorLayer
-                    lyr = QgsVectorLayer(output_layer_obj, layer_name, "ogr")
-                    if lyr and lyr.isValid():
-                        QgsProject.instance().addMapLayer(lyr)
-                        layer_added = True
+        scored = [(_score_algorithm(tokens, e), e) for e in catalog]
+        scored = [(s, e) for s, e in scored if s > 0]
+        scored.sort(key=lambda item: item[0], reverse=True)
+        matches = [e for _, e in scored[: max(1, limit)]]
 
         return {
-            "algorithm": algorithm,
-            "parameters": {k: str(v) for k, v in parameters.items()},
-            "success": True,
-            "layer_added": layer_added,
-            "result": {k: str(v) for k, v in result.items()},
+            "matches": matches,
+            "count": len(matches),
+            "total": len(get_algorithm_catalog()),
+            "query": query,
         }
     except Exception as e:
-        import traceback
-
-        return {
-            "algorithm": algorithm,
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        }
+        raise Exception(f"Find algorithm error: {str(e)}")
 
 
 @tool
@@ -111,42 +178,30 @@ def list_processing_algorithms(
     List available QGIS processing algorithms.
 
     Args:
-        provider: Optional provider id to filter. (e.g., "native", "pdal", "3d")
         search: Optional case-insensitive substring to filter by id or name.
+        provider: Optional provider id to filter (e.g., "native", "gdal").
         limit: Maximum number of algorithms to return.
 
     Returns:
         Dict with summary and a list of algorithms {id, name, provider}.
     """
     try:
-        registry = QgsApplication.processingRegistry()
-        algs: List[QgsProcessingAlgorithm] = list(registry.algorithms())
+        catalog = get_algorithm_catalog()
 
-        def matches(a: QgsProcessingAlgorithm) -> bool:
-            if provider and a.provider().id().lower() != provider.lower():
+        def matches(entry: Dict[str, Any]) -> bool:
+            if provider and entry["provider"].lower() != provider.lower():
                 return False
             if search:
                 s = search.lower()
-                return s in a.id().lower() or s in a.displayName().lower()
+                return s in entry["id"].lower() or s in entry["name"].lower()
             return True
 
-        filtered = [a for a in algs if matches(a)]
-        filtered = filtered[: max(0, limit)]
-
+        filtered = [e for e in catalog if matches(e)][: max(0, limit)]
         items = [
-            {
-                "id": a.id(),
-                "name": a.displayName(),
-                "provider": a.provider().id(),
-            }
-            for a in filtered
+            {"id": e["id"], "name": e["name"], "provider": e["provider"]}
+            for e in filtered
         ]
-
-        return {
-            "count": len(items),
-            "total": len(algs),
-            "items": items,
-        }
+        return {"count": len(items), "total": len(catalog), "items": items}
     except Exception as e:
         raise Exception(f"Listing algorithms error: {str(e)}")
 
@@ -203,7 +258,6 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
             try:
                 if isinstance(p, QgsProcessingParameterEnum):
                     item["options"] = list(p.options())
-                    # Allow multiple?
                     try:
                         item["allowMultiple"] = bool(
                             getattr(p, "allowMultiple", lambda: False)()
@@ -241,44 +295,81 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
         raise Exception(f"Describe algorithm error: {str(e)}")
 
 
+def _unique_layer_name(base: str) -> str:
+    """Return a project-unique layer name derived from *base*."""
+    from qgis.core import QgsProject
+
+    project = QgsProject.instance()
+    if not project.mapLayersByName(base):
+        return base
+    i = 2
+    while project.mapLayersByName(f"{base} ({i})"):
+        i += 1
+    return f"{base} ({i})"
+
+
 @tool
-def find_processing_algorithm(
-    query: str, provider: Optional[str]=None, limit: int = 300
-) -> Dict[str, Any]:
+def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
     """
-    Find algorithms that match a natural language query.
+    Execute a processing algorithm and load results into the QGIS map.
 
-    Extracts key operation words from query and uses list_processing_algorithms
-    to find relevant candidates. The LLM will select the best match.
-
-    Args:
-        query: Natural language description, e.g., 'buffer layer by 50m'.
-        provider: Optional provider id to filter (e.g., "native", "gdal", "grass").
-        limit: Max number of matches to return.
-
-    Returns:
-        Dict with following keys:
-        - best: id of best matching algorithm (first in list) or None
-        - matches: list of matching algorithms with {id, name, provider}
-        - query: original query string
+    Returns a dict with 'success', 'output_layers' (project layer names or
+    file paths usable as inputs for follow-up tasks), and the raw result.
     """
     try:
-        search_term = query.lower().strip()
-        result = list_processing_algorithms.invoke(
-            {"search": None, "provider": provider, "limit": limit}
-        )
-        items = result.get("items", [])
+        import os
+        import processing
+        from qgis.core import QgsProject, QgsMapLayer, QgsRasterLayer, QgsVectorLayer
 
-        if not items and search_term:
-            raise Exception("No algorithms found matching the query.")
+        if "OUTPUT" not in parameters:
+            parameters["OUTPUT"] = "TEMPORARY_OUTPUT"
+
+        result = processing.run(algorithm, parameters, feedback=None)
+
+        project = QgsProject.instance()
+        output_layers: List[str] = []
+        base_name = f"Result - {algorithm.split(':')[-1]}"
+
+        # Load every output layer/path into the project and record a usable
+        # reference (project layer name or file path) for downstream tasks.
+        for value in result.values():
+            if isinstance(value, QgsMapLayer):
+                if not value.name():
+                    value.setName(_unique_layer_name(base_name))
+                project.addMapLayer(value)
+                output_layers.append(value.name())
+            elif isinstance(value, str) and value and value != "TEMPORARY_OUTPUT":
+                file_ext = os.path.splitext(value)[-1].lower()
+                if not file_ext and not os.path.exists(value):
+                    continue  # not a loadable path (plain string result)
+                layer_name = _unique_layer_name(base_name)
+                is_raster = file_ext in RASTER_EXTENSIONS
+                lyr = (
+                    QgsRasterLayer(value, layer_name)
+                    if is_raster
+                    else QgsVectorLayer(value, layer_name, "ogr")
+                )
+                if lyr and lyr.isValid():
+                    project.addMapLayer(lyr)
+                    output_layers.append(layer_name)
 
         return {
-            "best": items[0]["id"] if items else None,
-            "matches": items,
-            "query": query,
+            "algorithm": algorithm,
+            "parameters": {k: str(v) for k, v in parameters.items()},
+            "success": True,
+            "layer_added": bool(output_layers),
+            "output_layers": output_layers,
+            "result": {k: str(v) for k, v in result.items()},
         }
     except Exception as e:
-        raise Exception(f"Find algorithm error: {str(e)}")
+        import traceback
+
+        return {
+            "algorithm": algorithm,
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
 
 
 __all__ = [
@@ -286,4 +377,5 @@ __all__ = [
     "list_processing_algorithms",
     "get_algorithm_parameters",
     "find_processing_algorithm",
+    "get_algorithm_catalog",
 ]
