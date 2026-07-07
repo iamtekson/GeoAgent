@@ -56,6 +56,8 @@ EXCLUDE_DIRS = {
     "_extras",  # Development/extras folder
     "tests",  # Unit tests (optional, include if you want)
     "test",
+    "paper",  # Research paper sources/figures (GitHub only)
+    "docs",  # README images (GitHub only)
 }
 
 
