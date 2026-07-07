@@ -149,7 +149,7 @@ Contributions are welcome — fork, create a feature branch, and open a pull req
 
 ## License & credits
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE). GeoAgent's own code is MIT-licensed; when it runs inside QGIS (GPL v2+, with PyQt under GPL v3), the combined work is governed by those licenses' terms, as with any QGIS plugin.
 
 **Authors:** [Tek Kshetri](https://github.com/iamtekson), [Rabin Ojha](https://github.com/rabenojha)
 
