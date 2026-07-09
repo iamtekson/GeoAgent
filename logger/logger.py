@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Logging module for GeoAgent plugin with UI integration.
+Logging module for GeoAgent plugin.
 
-This module provides logging functionality that displays messages in the QGIS UI
-instead of saving to files.
+Provides the unified "geo_agent" logger: messages are written to a rotating
+log file under the QGIS profile directory (<profile>/GeoAgent/geo_agent.log),
+echoed to the console, and mirrored to the plugin's Logs tab via UILogHandler.
 """
 
 import os
 from qgis.core import QgsApplication
 import logging
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 from qgis.PyQt.QtWidgets import QTextBrowser
 from qgis.PyQt.QtCore import QObject, pyqtSignal
@@ -43,15 +45,14 @@ class UILogHandler(logging.Handler):
     def __init__(
         self,
         text_browser: Optional[QTextBrowser] = None,
-        max_lines: int = 1000,        
+        max_lines: int = 1000,
     ):
         """
         Initialize UILogHandler.
-        
+
         Args:
             text_browser: QTextBrowser widget to display logs. Can be set later with set_text_browser()
             max_lines: Maximum number of lines to keep in the text browser (default: 1000)
-            show_debug: Whether to show DEBUG level messages (default: False)
         """
         super().__init__()
         self.text_browser = text_browser
@@ -187,29 +188,55 @@ def _get_log_file_path() -> str:
     return os.path.join(log_dir, "geo_agent.log")
 
 def configure_logger(level: int = logging.INFO) -> logging.Logger:
+    """
+    Configure the unified "geo_agent" logger.
+
+    Attaches a rotating file handler (<profile>/GeoAgent/geo_agent.log) and a
+    console handler. Safe to call repeatedly (e.g. on plugin reload): existing
+    handlers are updated in place instead of duplicated.
+    """
     logger = logging.getLogger("geo_agent")
     logger.setLevel(level)
     logger.propagate = False
-
-    # Update existing handlers if present
-    for h in logger.handlers:
-        if isinstance(h, logging.FileHandler):
-            h.setLevel(level)
-            return logger
-
-    file_handler = logging.FileHandler(_get_log_file_path(), encoding="utf-8")
-    file_handler.setLevel(level)
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    file_handler.setFormatter(formatter)
 
-    logger.addHandler(file_handler)
+    file_handler = None
+    console_handler = None
+    for h in list(logger.handlers):
+        if isinstance(h, RotatingFileHandler):
+            file_handler = h
+        elif isinstance(h, logging.FileHandler):
+            # Stale non-rotating handler left over from an older plugin version
+            logger.removeHandler(h)
+            h.close()
+        elif isinstance(h, logging.StreamHandler):
+            console_handler = h
+
+    if file_handler is None:
+        file_handler = RotatingFileHandler(
+            _get_log_file_path(),
+            maxBytes=2 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    file_handler.setLevel(level)
+
+    if console_handler is None:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    console_handler.setLevel(level)
+
     return logger
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
+    """Return the unified "geo_agent" logger, or a "geo_agent.<name>" child."""
     if name:
         return logging.getLogger(f"geo_agent.{name}")
     return logging.getLogger("geo_agent")

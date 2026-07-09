@@ -27,7 +27,7 @@ from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSize, QSettings
 
 from ..logger.logger import UILogHandler
-from ..config.settings import SHOW_DEBUG_LOGS, MAX_LOG_LINES, SUPPORTED_MODELS
+from ..config.settings import MAX_LOG_LINES, SUPPORTED_MODELS
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(
@@ -78,7 +78,6 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 ui_log_handler = UILogHandler(
                     text_browser=self.geoagent_logs,
                     max_lines=MAX_LOG_LINES,
-                    show_debug=SHOW_DEBUG_LOGS,
                 )
 
                 # Store the handler as an attribute for later access
