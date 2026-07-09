@@ -42,7 +42,7 @@ from .config.settings import (
     QGIS_MESSAGE_DURATION,
     SHOW_DEBUG_LOGS,
 )
-from .logger.logger import UILogHandler
+from .logger.logger import UILogHandler, configure_logger, get_logger
 from .llm.worker import LLMWorker
 from .prompts.system import GENERAL_SYSTEM_PROMPT
 from .utils.canvas_refresh import (
@@ -59,6 +59,10 @@ import os
 import os.path
 import traceback
 import logging
+
+# Chat transcript logger ("geo_agent.chat"): records user questions and LLM
+# responses in the unified GeoAgent log (file, console, and Logs tab).
+_chat_logger = get_logger("chat")
 
 
 class GeoAgent:
@@ -147,56 +151,42 @@ class GeoAgent:
         # Configure UI logger
         level = logging.DEBUG if SHOW_DEBUG_LOGS else logging.INFO
         ui_handler.setLevel(level)
+
+        # Unified "geo_agent" logger: rotating file + console handlers, plus
+        # the Logs-tab UI handler. All plugin loggers ("geo_agent.ui",
+        # "geo_agent.processing", "geo_agent.chat", ...) are children of it,
+        # so every message reaches the same three sinks.
         try:
-            ui_handler.set_show_debug(SHOW_DEBUG_LOGS)
+            agent_logger = configure_logger(level)
         except Exception as exc:
-            # log and continue if the UI handler does not support debug toggling
             QgsMessageLog.logMessage(
-                f"GeoAgent UI handler does not support debug toggle: {exc}",
+                f"GeoAgent file logging unavailable: {exc}",
                 "GeoAgent",
                 level=Qgis.Warning,
             )
+            agent_logger = get_logger()
+            agent_logger.setLevel(level)
+            agent_logger.propagate = False
 
-        self._ui_logger = logging.getLogger("GeoAgent.UI")
+        # Drop UI handlers from a previous plugin load (loggers are
+        # process-wide and outlive the plugin) before adding ours.
+        for handler in list(agent_logger.handlers):
+            if isinstance(handler, UILogHandler) and handler is not ui_handler:
+                agent_logger.removeHandler(handler)
+        if ui_handler not in agent_logger.handlers:
+            agent_logger.addHandler(ui_handler)
+
+        self._plugin_logger = agent_logger
+        self._ui_logger = get_logger("ui")
         self._ui_logger.setLevel(level)
-        self._ui_logger.propagate = False
+        self._ui_logger.propagate = True
+        self._ui_logger.handlers.clear()
 
-        # Avoid duplicate handlers on reload
-        existing = [h for h in self._ui_logger.handlers if h is ui_handler]
-        if not existing:
-            # Clear stale handlers to prevent duplicate console outputs
-            self._ui_logger.handlers.clear()
-
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(level)
-            console_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                )
-            )
-            self._ui_logger.addHandler(console_handler)
-            self._ui_logger.addHandler(ui_handler)
-
-        # Plugin-level logger for general events; let it propagate to root
-        self._plugin_logger = logging.getLogger("GeoAgent")
-        self._plugin_logger.setLevel(level)
-        self._plugin_logger.propagate = True
-        # Do not attach ui_handler here to avoid duplication; root will handle it
-
-        # Attach handler to root logger so any logging call is mirrored to UI once
+        # Mirror third-party WARNING+ messages to the Logs tab too. Leave the
+        # root logger's level untouched so we don't force DEBUG on all of QGIS.
         root_logger = logging.getLogger()
-        root_logger.setLevel(level)
         if ui_handler not in root_logger.handlers:
             root_logger.addHandler(ui_handler)
-
-        # Attach processing logger to the same UI handler
-        try:
-            from .logger.processing_logger import set_processing_ui_log_handler
-
-            set_processing_ui_log_handler(ui_handler)
-        except Exception:
-            pass
 
         # Connect QGIS message log stream
         self._connect_qgis_message_log()
@@ -603,6 +593,13 @@ class GeoAgent:
             # Get current mode from UI
             current_mode = self.dlg.get_current_mode()
 
+            _chat_logger.info(
+                "User question (%s mode, model=%s): %s",
+                current_mode,
+                model_name,
+                question,
+            )
+
             # Initialize app if needed, model changed, or mode changed
             if (
                 self.app is None
@@ -708,6 +705,8 @@ class GeoAgent:
                     response_text = str(content)
             else:
                 response_text = str(last_msg)
+
+            _chat_logger.info("LLM response: %s", response_text)
 
             # Display response
             self._display_ai_response(response_text)
