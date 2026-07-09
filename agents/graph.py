@@ -1,24 +1,52 @@
 # -*- coding: utf-8 -*-
 """
-Graph builder for GeoAgent: routes between general conversational mode and geoprocessing workflows.
+Graph builders for GeoAgent.
+
+- General mode: conversational LLM ⇄ tools loop (figure A).
+- Processing mode: multi-step workflow with the geoprocessing sub-graph (figure B).
 """
-from typing import List, Any
-from langchain_core.messages import SystemMessage, HumanMessage
+from typing import Any, List, Sequence
 
 from langgraph.graph import StateGraph, END
-from langgraph.types import RetryPolicy
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
+from langchain_core.messages import (
+    BaseMessage,
+    AIMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
-from .multi_step_processing import build_multi_step_processing_graph
 from ..tools import TOOLS
-
 from .states import AgentState
-from .processing import build_processing_graph, invoke_processing_app
+from .workflow import build_workflow_graph
+
+# Cap on the conversation window sent to the LLM in general mode, to keep
+# token usage bounded on long chats. System messages are always kept.
+MAX_CONTEXT_MESSAGES = 20
+
+
+def _trim_context(messages: Sequence[BaseMessage]) -> List[BaseMessage]:
+    """Keep system messages plus the most recent window of the conversation.
+
+    The window never starts on a ToolMessage (its triggering AIMessage must
+    be included, or providers reject the request).
+    """
+    system = [m for m in messages if isinstance(m, SystemMessage)]
+    rest = [m for m in messages if not isinstance(m, SystemMessage)]
+
+    if len(rest) <= MAX_CONTEXT_MESSAGES:
+        return list(messages)
+
+    tail = rest[-MAX_CONTEXT_MESSAGES:]
+    start = len(rest) - MAX_CONTEXT_MESSAGES
+    while start > 0 and isinstance(tail[0], ToolMessage):
+        start -= 1
+        tail = rest[start:]
+    return system + tail
 
 
 def build_graph_app(llm) -> Any:
-    """Build and compile a LangGraph app for general mode with tools and memory."""
+    """Build and compile the general-mode graph: LLM ⇄ tools until done."""
 
     try:
         bound_llm = llm.bind_tools(list(TOOLS.values()))
@@ -26,8 +54,8 @@ def build_graph_app(llm) -> Any:
         bound_llm = llm
 
     def llm_node(state: AgentState) -> AgentState:
-        response = bound_llm.invoke(state["messages"])
-        return {"messages": state["messages"] + [response]}
+        response = bound_llm.invoke(_trim_context(state["messages"]))
+        return {"messages": [response]}
 
     def tool_node(state: AgentState) -> AgentState:
         last_msg = state["messages"][-1]
@@ -39,7 +67,6 @@ def build_graph_app(llm) -> Any:
                     content = f"Error: Tool '{call['name']}' is not available."
                 else:
                     result = tool_inst.invoke(call["args"])
-                    # Ensure result is a string for ToolMessage
                     content = result if isinstance(result, str) else str(result)
                 tool_messages.append(
                     ToolMessage(content=content, tool_call_id=call["id"])
@@ -51,7 +78,7 @@ def build_graph_app(llm) -> Any:
                         tool_call_id=call["id"],
                     )
                 )
-        return {"messages": state["messages"] + tool_messages}
+        return {"messages": tool_messages}
 
     def should_use_tools(state: AgentState) -> str:
         last_msg = state["messages"][-1]
@@ -61,47 +88,39 @@ def build_graph_app(llm) -> Any:
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", llm_node)
-    graph.add_node("tools", tool_node, retry_policy=RetryPolicy(max_attempts=2))
+    graph.add_node("tools", tool_node)
     graph.set_entry_point("llm")
     graph.add_conditional_edges("llm", should_use_tools, {"tools": "tools", END: END})
-    graph.add_edge("tools", END)
+    # Loop back so the LLM can react to tool results (and chain more tools);
+    # previously this edge went to END and the user saw raw tool output.
+    graph.add_edge("tools", "llm")
 
     return graph.compile(checkpointer=MemorySaver())
 
 
-def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
-    """Invoke the compiled app and return the last AI message."""
-    state = {"messages": messages}
-    result = app.invoke(state, config={"configurable": {"thread_id": thread_id}})
-    # result["messages"] is the full list; return the last AI message
-    return result["messages"][-1]
-
-
-def build_unified_graph(llm, mode: str = "general", multi_step: bool = True) -> Any:
+def build_unified_graph(llm, mode: str = "general") -> Any:
     """
-    Build a mode-specific graph: either general (conversational + tools) or processing (geoprocessing workflow).
+    Build the app for the requested mode.
 
     Args:
-        llm: The language model instance
-        mode: Either 'general' (default) for conversational mode or 'processing' for geoprocessing workflow
-        multi_step: If True (and mode='processing'), use multi-step processing graph; otherwise use single-step
-
-    Returns:
-        Compiled LangGraph application for the specified mode
+        llm: The language model instance.
+        mode: 'general' (conversational + tools) or 'processing'
+              (multi-step geoprocessing workflow).
     """
     if mode == "processing":
-        # Build dedicated processing workflow
-        if multi_step:
-            # Multi-step recursive sub-graph for complex workflows
-            return build_multi_step_processing_graph(llm).compile(
-                checkpointer=MemorySaver()
-            )
-        else:
-            # Traditional single-step: route → find_algorithms → select → inspect → gather_params → execute → finalize
-            return build_processing_graph(llm)
-    else:
-        # Build general mode with tool binding and multi-turn reasoning
-        return build_graph_app(llm)
+        return build_workflow_graph(llm).compile(checkpointer=MemorySaver())
+    return build_graph_app(llm)
+
+
+def _invoke_config(thread_id: str) -> dict:
+    # Generous recursion limit: each workflow task spans several graph steps.
+    return {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
+
+
+def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
+    """Invoke the compiled app and return the last AI message."""
+    result = app.invoke({"messages": messages}, config=_invoke_config(thread_id))
+    return result["messages"][-1]
 
 
 async def invoke_app_async(
@@ -110,25 +129,19 @@ async def invoke_app_async(
     """
     Invoke the compiled app asynchronously and return the last AI message.
 
-    Uses app.ainvoke() if available (LangGraph 0.2.0+), otherwise falls back to invoke().
+    Uses app.ainvoke() if available, otherwise falls back to invoke().
     """
     state = {"messages": messages}
     try:
-        # Try async invoke first (LangGraph 0.2.0+)
-        result = await app.ainvoke(
-            state, config={"configurable": {"thread_id": thread_id}}
-        )
+        result = await app.ainvoke(state, config=_invoke_config(thread_id))
     except (AttributeError, NotImplementedError):
-        # Fallback to sync invoke if async not available
-        result = app.invoke(state, config={"configurable": {"thread_id": thread_id}})
-    # result["messages"] is the full list; return the last AI message
+        result = app.invoke(state, config=_invoke_config(thread_id))
     return result["messages"][-1]
 
 
 __all__ = [
     "build_graph_app",
+    "build_unified_graph",
     "invoke_app",
     "invoke_app_async",
-    "build_unified_graph",
-    "invoke_processing_app",
 ]
