@@ -58,6 +58,7 @@ EXCLUDE_DIRS = {
     "test",
     "paper",  # Research paper sources/figures (GitHub only)
     "docs",  # README images (GitHub only)
+    "_extra", # Flowchart generation code (GitHub only)
 }
 
 
