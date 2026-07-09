@@ -5,8 +5,9 @@
 [general]
 name=GeoAgent
 qgisMinimumVersion=3.2
+qgisMaximumVersion=4.99
 description=Plugin for QGIS interaction using LLM. Enables geospatial analysis and data processing through natural language commands.
-version=0.2.0
+version=0.5.2
 author=Tek Kshetri, Rabin Ojha
 email=iamtekson@gmail.com, rabenojha@gmail.com
 
@@ -16,6 +17,18 @@ license=MIT
 tracker=https://github.com/iamtekson/GeoAgent/issues
 repository=https://github.com/iamtekson/GeoAgent
 changelog=
+    v0.5.0
+        - Added support for Anthropic Models
+        - Save settings and check dependency installation function implementation
+    v0.4.0
+        - Added support for QGIS 4.x.x
+        - Fixed bug on UI
+    v0.3.2
+        - Fix import issue. 
+        - Added support for multi-step geospatial workflows.
+        - Added support for remove layer confirmation dialog box.
+        - Fixed state mutation issue.
+        - Extended support for multiple geoprocessing providers (grass, gdal, pdal etc.) for geospatial analysis agent.
     v0.2.0
         - Improved UI help messages and user notifications.
         - Enhanced error handling for project operations.

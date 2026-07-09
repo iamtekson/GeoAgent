@@ -47,6 +47,20 @@ def create_llm(provider: str, api_key: Optional[str] = None, **kwargs):
             max_output_tokens=kwargs.get("max_tokens"),
         )
 
+    elif provider == "anthropic":
+        # Lazy import to avoid dependency issues
+        anthropic_mod = importlib.import_module("langchain_anthropic")
+        ChatAnthropic = anthropic_mod.ChatAnthropic
+
+        # Claude's current model lineup (e.g. claude-sonnet-5) rejects any
+        # explicit, non-default `temperature` outright (400 invalid_request_error).
+        # Leave it unset rather than forwarding the UI's generic temperature slider.
+        return ChatAnthropic(
+            api_key=api_key,
+            model=kwargs.get("model", "claude-sonnet-5"),
+            max_tokens=kwargs.get("max_tokens"),
+        )
+
     elif provider == "ollama":
         # Use langchain-ollama library
         ollama_mod = importlib.import_module("langchain_ollama")

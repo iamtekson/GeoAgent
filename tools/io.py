@@ -11,8 +11,14 @@ from qgis.core import (
     QgsRasterLayer,
     QgsMapLayer,
 )
+
+# show confirmation dialog
+from qgis.PyQt.QtWidgets import QMessageBox
+
+# langchain tool decorator
 from langchain_core.tools import tool
 from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
+from ..utils.layer_matching import find_layer
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
@@ -193,12 +199,8 @@ def zoom_to_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -207,12 +209,12 @@ def zoom_to_layer(layer_name: str) -> str:
         # Zoom to layer extent using the map canvas
         iface.setActiveLayer(layer)
         iface.zoomToActiveLayer()
-        
+
         # refresh canvas
         iface.mapCanvas().refresh()
 
-        _logger.info(f"Successfully zoomed to layer '{layer_name}'")
-        return f"**Success:** Zoomed to layer **{layer_name}**."
+        _logger.info(f"Successfully zoomed to layer '{matched_name}'")
+        return f"**Success:** Zoomed to layer **{matched_name}**."
 
     except Exception as e:
         _logger.error(f"Error zooming to layer: {str(e)}", exc_info=True)
@@ -239,12 +241,8 @@ def get_layer_columns(layer_name: str) -> str:
     try:
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -252,18 +250,18 @@ def get_layer_columns(layer_name: str) -> str:
 
         # Check if it's a vector layer
         if layer.type() != QgsMapLayer.VectorLayer:
-            _logger.error(f"Layer '{layer_name}' is not a vector layer")
-            return f"**Error:** **{layer_name}** is not a vector layer. Column information is only available for vector layers."
+            _logger.error(f"Layer '{matched_name}' is not a vector layer")
+            return f"**Error:** **{matched_name}** is not a vector layer. Column information is only available for vector layers."
 
         # Get fields
         fields = layer.fields()
 
         if fields.count() == 0:
-            _logger.debug(f"Layer '{layer_name}' has no attribute fields")
-            return f"Layer '{layer_name}' has no attribute fields."
+            _logger.debug(f"Layer '{matched_name}' has no attribute fields")
+            return f"Layer '{matched_name}' has no attribute fields."
 
         column_info = []
-        column_info.append(f"Layer: {layer_name}")
+        column_info.append(f"Layer: {matched_name}")
         column_info.append(f"Total columns: {fields.count()}")
         column_info.append(f"Total features: {layer.featureCount()}")
         column_info.append(
@@ -297,7 +295,7 @@ def get_layer_columns(layer_name: str) -> str:
             if sample_values:
                 column_info.append(f"   {sample_values}")
 
-        _logger.info(f"Retrieved {fields.count()} columns from layer '{layer_name}'")
+        _logger.info(f"Retrieved {fields.count()} columns from layer '{matched_name}'")
         return "\n".join(column_info)
 
     except Exception as e:
@@ -330,14 +328,8 @@ def remove_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name
-        layer = None
-        layer_id = None
-        for lyr in project.mapLayers().values():
-            if lyr.name().lower() == layer_name.lower():
-                layer = lyr
-                layer_id = lyr.id()
-                break
+        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
             available_layers = [lyr.name() for lyr in project.mapLayers().values()]
@@ -346,14 +338,30 @@ def remove_layer(layer_name: str) -> str:
             )
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
-        project.removeMapLayer(layer_id)
-        iface.mapCanvas().refresh()
-        _logger.info(f"Successfully removed layer '{layer_name}' from project")
-        return f"**Success:** Layer **{layer_name}** has been removed from the project."
-    
+        layer_id = layer.id()
+
+        msg_box = QMessageBox(iface.mainWindow())
+        msg_box.setWindowTitle("Remove Layer")
+        msg_box.setText(
+            f"Do you really want to remove the layer '{matched_name}' from the project?"
+        )
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+
+        # get user response
+        response = msg_box.exec()
+
+        if response == QMessageBox.StandardButton.Yes:
+            project.removeMapLayer(layer_id)
+            iface.mapCanvas().refresh()
+            _logger.info(f"Successfully removed layer '{matched_name}' from project")
+            return f"**Success:** Layer **{matched_name}** has been removed from the project."
+
     except Exception as e:
         _logger.error(f"Error removing layer: {str(e)}", exc_info=True)
         return f"**Error:** Failed to remove layer **{layer_name}**: {str(e)}"
+
 
 @tool
 @qgis_main_thread
@@ -397,13 +405,13 @@ def create_new_qgis_project(path: str, project_name: Optional[str] = None) -> st
         if project_dir and not os.path.exists(project_dir):
             _logger.debug(f"Creating project directory: {project_dir}")
             os.makedirs(project_dir)
-            
+
         # main logic to save project
         project.setFileName(path)
         project.write(path)
         _logger.info(f"Successfully created project at '{path}'")
         return f"**Success:** Created new project at **{path}**"
-            
+
     except Exception as e:
         _logger.error(f"Error creating project: {str(e)}", exc_info=True)
         return f"**Error:** creating project: {str(e)}"
@@ -423,8 +431,8 @@ def save_qgis_project(path: Optional[str] = None) -> str:
         Success message with project path or error message.
 
     Examples:
-        - save_qgis_project('/geoagent/my_project.qgs') 
-        - save_qgis_project('D:/geoagent/project_backup.qgz')  
+        - save_qgis_project('/geoagent/my_project.qgs')
+        - save_qgis_project('D:/geoagent/project_backup.qgz')
     """
     _logger.info(f"Saving new QGIS project: {path}")
     try:
@@ -464,6 +472,7 @@ def save_qgis_project(path: Optional[str] = None) -> str:
     except Exception as e:
         return f"**Error:** saving project: {str(e)}"
 
+
 @tool
 @qgis_main_thread
 def load_qgis_project(path: str) -> str:
@@ -475,9 +484,9 @@ def load_qgis_project(path: str) -> str:
 
     Returns:
         Success message with project details or error message.
-    
+
     Examples:
-    - load_qgis_project('/geoagent/my_project.qgs') 
+    - load_qgis_project('/geoagent/my_project.qgs')
     - load_qgis_project('C:/Users/asus/geoagent/map_project.qgz')
     """
     _logger.info(f"Loading QGIS project: {path}")
@@ -501,7 +510,7 @@ def load_qgis_project(path: str) -> str:
             return f"**Error:** Failed to load project from '{path}'. The project file may be corrupted, inaccessible, or invalid."
         _logger.info(f"Successfully loaded project from '{path}'")
         return f"**Success:** Loaded project from **{path}** with {len(project.mapLayers())} layers."
-        
+
     except Exception as e:
         _logger.error(f"Error loading project: {str(e)}", exc_info=True)
         return f"**Error:** loading project: {str(e)}"

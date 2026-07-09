@@ -1,15 +1,18 @@
 [project]
 name = "geo-agent"
-version = "0.2.0"
+version = "0.5.2"
 description = "Plugin for QGIS interaction using LLM. Enables geospatial analysis and data processing through natural language commands."
 readme = "README.md"
-requires-python = ">=3.13"
+license = { text = "MIT" }
+# QGIS 3.x bundles Python 3.9-3.12; langchain-core 1.x needs >=3.10
+requires-python = ">=3.10"
 dependencies = [
     "langchain-community>=0.4.1",
     "langchain-core>=1.2.4",
     "langchain-google-genai>=4.1.2",
     "langchain-openai>=1.1.6",
     "langchain-ollama>=0.1.0",
+    "langchain-anthropic>=0.3.0",
     "langgraph>=1.0.5",
     "requests>=2.32.5",
     "markdown>=3.4.0",

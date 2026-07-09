@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 from qgis.PyQt.QtWidgets import QTextBrowser
 from qgis.PyQt.QtCore import QObject, pyqtSignal
+from qgis.PyQt.QtGui import QTextCursor
 
 
 class UILogSignal(QObject):
@@ -166,11 +167,11 @@ class UILogHandler(logging.Handler):
             cursor = self.text_browser.textCursor()
             
             # Move to start
-            cursor.movePosition(cursor.Start)
-            
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+
             # Select and delete lines
             for _ in range(lines_to_remove):
-                cursor.select(cursor.LineUnderCursor)
+                cursor.select(QTextCursor.SelectionType.LineUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()  # Remove the newline
             
