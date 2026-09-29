@@ -5,6 +5,7 @@ Geoprocessing tools for QGIS operations.
 Provides algorithm discovery (over the FULL processing registry, all providers),
 parameter inspection, and execution with results loaded into the QGIS project.
 """
+import html
 import re
 from typing import Optional, List, Dict, Any
 from langchain_core.tools import tool
@@ -53,6 +54,27 @@ _SYNONYMS = {
 }
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_help_text(alg: QgsProcessingAlgorithm, max_chars: int = 2000) -> str:
+    """Plain-text algorithm help; shortHelpString() may contain HTML.
+
+    This is where providers such as GRASS/SAGA document parameter semantics
+    (e.g. that a stream threshold is in cells, not map units), which the bare
+    parameter definitions don't carry.
+    """
+    try:
+        text = alg.shortHelpString() or ""
+    except Exception:
+        return ""
+    text = html.unescape(_HTML_TAG_RE.sub(" ", text))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0] + " ..."
+    return text
+
+
 def get_algorithm_catalog(refresh: bool = False) -> List[Dict[str, Any]]:
     """Return all registered algorithms with searchable metadata, cached."""
     global _ALGORITHM_CATALOG
@@ -70,6 +92,11 @@ def get_algorithm_catalog(refresh: bool = False) -> List[Dict[str, Any]]:
             description = alg.shortDescription() or ""
         except Exception:
             description = ""
+        if not description:
+            # GRASS/SAGA algorithms typically have no shortDescription; use
+            # the first part of their help text so selection can see what
+            # they do (only for empty ones to keep the one-off build cheap).
+            description = _plain_help_text(alg, max_chars=160)
         catalog.append(
             {
                 "id": alg.id(),
@@ -231,7 +258,8 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
         algorithm: Algorithm id, e.g., 'native:buffer'.
 
     Returns:
-        Dict containing algorithm metadata, parameters, and outputs.
+        Dict containing algorithm metadata, plain-text help describing what
+        the algorithm does and its parameter semantics, parameters, and outputs.
     """
     try:
         registry = QgsApplication.processingRegistry()
@@ -288,6 +316,7 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
             "id": alg.id(),
             "name": alg.displayName(),
             "provider": alg.provider().id(),
+            "help": _plain_help_text(alg),
             "parameters": params,
             "outputs": outputs,
         }

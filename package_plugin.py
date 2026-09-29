@@ -59,6 +59,7 @@ EXCLUDE_DIRS = {
     "paper",  # Research paper sources/figures (GitHub only)
     "docs",  # README images (GitHub only)
     "_extra", # Flowchart generation code (GitHub only)
+    "not_used",  # Unused files (not even in github)
 }
 
 

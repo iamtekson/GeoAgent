@@ -223,6 +223,10 @@ def build_geoprocessing_subgraph(llm) -> Any:
         if state.get("error_diagnosis"):
             retry_context = f"\nError diagnosis from failed attempt: {state['error_diagnosis']}\n"
 
+        help_section = ""
+        if metadata.get("help"):
+            help_section = f"Algorithm help:\n{metadata['help']}\n"
+
         key_params = task.get("key_parameters") or {}
         messages = [
             SystemMessage(content=PARAMETER_GATHERING_PROMPT),
@@ -231,7 +235,8 @@ def build_geoprocessing_subgraph(llm) -> Any:
                     f"Task: {task.get('operation', '')}\n"
                     f"Known values from query: {key_params}\n"
                     f"Original user query: {state.get('user_query', '')}\n\n"
-                    f"Algorithm: {metadata.get('name', '')} ({metadata.get('id', '')})\n\n"
+                    f"Algorithm: {metadata.get('name', '')} ({metadata.get('id', '')})\n"
+                    f"{help_section}\n"
                     f"Available layers:\n{_available_layers_text()}\n\n"
                     f"Previous task outputs (label: layer name):\n"
                     f"{_previous_outputs_text(state)}\n"
