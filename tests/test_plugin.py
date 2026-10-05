@@ -87,9 +87,7 @@ class PluginTest(unittest.TestCase):
         plugin, dlg = self.plugin, self.dlg
         plugin.llm = llm
         plugin.app = build_unified_graph(llm, mode=mode)
-        plugin.current_model = dlg.model.currentText()
-        plugin._current_mode = mode
-        plugin._last_temperature = dlg.temperature.value()
+        plugin._agent_settings_used = plugin._agent_settings(mode)
         plugin.thread_id = f"plugin-test:{mode}"
         (dlg.processing_mode if mode == "processing" else dlg.general_mode).setChecked(True)
 
@@ -236,8 +234,44 @@ class PluginTest(unittest.TestCase):
             self.dlg._save_settings()
             reopened.deleteLater()
 
+    def fake_initialize(self):
+        """Stand-in for _initialize_agent: builds the app on a scripted LLM."""
+
+        def initialize(model_name, temperature=None, max_tokens=None, mode="general"):
+            self.plugin.llm = FakeLLM({})
+            self.plugin.app = build_unified_graph(self.plugin.llm, mode=mode)
+
+        return mock.patch.object(self.plugin, "_initialize_agent", side_effect=initialize)
+
+    def test_15_first_message_builds_agent_once(self):
+        self.dlg.general_mode.setChecked(True)
+        self.plugin.app = None
+        with self.fake_initialize() as initialize:
+            self.send("hello")
+        self.assertEqual(initialize.call_count, 1)
+
+    def test_16_any_changed_setting_rebuilds_agent(self):
+        self.use_app(FakeLLM({}), "general")
+        with self.fake_initialize() as initialize:
+            self.send("unchanged settings")
+            self.assertEqual(initialize.call_count, 0)
+            changes = [
+                lambda: self.dlg.max_tokens.setValue(self.dlg.max_tokens.value() + 1000),
+                lambda: self.dlg.model_name.setText("another-model"),
+                lambda: self.dlg.custom_apikey.setText("another-key"),
+                lambda: self.dlg.ollama_base_url.setText("http://example.org:11434"),
+                lambda: self.dlg.ollama_model_name.setText("llama3.1:8b"),
+            ]
+            for expected_calls, change in enumerate(changes, start=1):
+                change()
+                self.send("after a settings change")
+                self.assertEqual(initialize.call_count, expected_calls)
+                self.assertEqual(initialize.call_args.kwargs["max_tokens"], self.dlg.max_tokens.value())
+            self.send("unchanged again")
+            self.assertEqual(initialize.call_count, len(changes))
+
     @unittest.skipUnless(importlib.util.find_spec("langchain_openai"), "langchain_openai not installed")
-    def test_15_initialize_agent_builds_both_modes(self):
+    def test_17_initialize_agent_builds_both_modes(self):
         # Constructing the client makes no network call
         self.dlg.model.setCurrentIndex(self.dlg.model.findText("OpenAI"))
         self.dlg.custom_apikey.setText("sk-test-not-real")

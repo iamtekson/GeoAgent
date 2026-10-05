@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 62 tests in 13.2s
+Ran 64 tests in 10.0s
 
 OK
 ```
@@ -135,7 +135,9 @@ These use the real `GeoAgent` class, dialog, and background worker thread, with 
 | `test_12_web_links_open_in_browser` | ordinary links in replies open in the web browser |
 | `test_13_clear_chat_forgets_runs` | Clear Chat forgets the runs and their links |
 | `test_14_after_run_setting_is_saved` | *Save settings* keeps the *After a processing run* choice |
-| `test_15_initialize_agent_builds_both_modes` | the real provider setup builds both modes (skipped without `langchain-openai`) |
+| `test_15_first_message_builds_agent_once` | the first message builds the LLM client and graph once, not twice |
+| `test_16_any_changed_setting_rebuilds_agent` | changing max tokens, model name, API key or an Ollama setting applies to the next message; unchanged settings don't rebuild |
+| `test_17_initialize_agent_builds_both_modes` | the real provider setup builds both modes (skipped without `langchain-openai`) |
 
 ## How it works
 

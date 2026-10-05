@@ -1,0 +1,6 @@
+# Packages needed to build the documentation (not the plugin)
+sphinx>=8.0
+myst-parser>=4.0
+furo>=2024.8.6
+sphinx-copybutton>=0.5.2
+sphinxcontrib-mermaid>=1.0
