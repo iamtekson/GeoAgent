@@ -57,11 +57,56 @@ def _single_task(query: str) -> Dict[str, Any]:
     return {
         "task_id": 1,
         "operation": query,
+        "is_geoprocessing": None,  # unknown: the routing LLM call decides
         "algorithm_hint": "",
         "search_keywords": [],
         "dependencies": [],
         "key_parameters": {},
     }
+
+
+def _json_safe(value: Any) -> Any:
+    """Plain-JSON copy of a parameter value (state must stay serializable)."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    return str(value)
+
+
+def _project_layer_ids() -> List[str]:
+    try:
+        from qgis.core import QgsProject
+
+        return list(QgsProject.instance().mapLayers().keys())
+    except Exception:
+        return []
+
+
+def _layer_name(layer_id: str) -> str:
+    try:
+        from qgis.core import QgsProject
+
+        layer = QgsProject.instance().mapLayer(layer_id)
+        return layer.name() if layer is not None else layer_id
+    except Exception:
+        return layer_id
+
+
+def _register_outputs(
+    state: WorkflowState, task_id: Any, names: List[str], ids: List[str]
+) -> WorkflowState:
+    """Queue a task's output layers under task_N_output[_i] labels."""
+    available = dict(state.get("available_outputs") or {})
+    available_ids = dict(state.get("available_output_ids") or {})
+    for i, name in enumerate(names):
+        label = f"task_{task_id}_output" + (f"_{i}" if i else "")
+        available[label] = name
+        if i < len(ids):
+            available_ids[label] = ids[i]
+    return {"available_outputs": available, "available_output_ids": available_ids}
 
 
 def build_workflow_graph(llm) -> Any:
@@ -105,15 +150,28 @@ def build_workflow_graph(llm) -> Any:
             "current_task_index": 0,
             "task_results": {},
             "available_outputs": {},
+            "available_output_ids": {},
             "error_message": None,
             "error_analysis": None,
         }
 
     def prepare_task_node(state: WorkflowState) -> WorkflowState:
-        """The figure's 'Needs Geoprocessing?' decision for the current task."""
+        """The figure's 'Needs Geoprocessing?' decision for the current task.
+
+        Decomposition normally answers this already (is_geoprocessing); the
+        routing LLM call is only the fallback when it didn't.
+        """
         task = _current_task(state)
         if not task:
             return {}
+
+        decided = task.get("is_geoprocessing")
+        if isinstance(decided, bool):
+            _logger.info(
+                f"WORKFLOW route task {task.get('task_id')}: "
+                f"geoprocessing={decided} (from decomposition)"
+            )
+            return {"current_task_is_processing": decided}
 
         operation = task.get("operation", "")
         try:
@@ -149,6 +207,7 @@ def build_workflow_graph(llm) -> Any:
                 "task": task,
                 "user_query": state.get("user_query", ""),
                 "available_outputs": state.get("available_outputs", {}),
+                "available_output_ids": state.get("available_output_ids", {}),
                 "retry_count": 0,
                 "excluded_algorithms": [],
                 "success": False,
@@ -171,10 +230,17 @@ def build_workflow_graph(llm) -> Any:
         delta: WorkflowState = {"task_results": task_results}
 
         if success:
-            available = dict(state.get("available_outputs") or {})
-            for i, layer in enumerate(output_layers):
-                available[f"task_{task_id}_output" + (f"_{i}" if i else "")] = layer
-            delta["available_outputs"] = available
+            # The executed step, for export as a QGIS model
+            task_results[task_id]["step"] = {
+                "algorithm": outcome.get("selected_algorithm"),
+                "parameters": _json_safe(outcome.get("parameters") or {}),
+                "outputs": dict(outcome.get("outputs") or {}),
+            }
+            delta.update(
+                _register_outputs(
+                    state, task_id, output_layers, outcome.get("output_layer_ids") or []
+                )
+            )
             delta["error_message"] = None
         else:
             delta["error_message"] = outcome.get("error_message") or "Geoprocessing task failed"
@@ -213,6 +279,7 @@ def build_workflow_graph(llm) -> Any:
         except Exception:
             bound_llm = llm
 
+        layers_before = set(_project_layer_ids())
         try:
             response = bound_llm.invoke(convo)
             rounds = 0
@@ -248,7 +315,18 @@ def build_workflow_graph(llm) -> Any:
                 "error": None,
             }
             _logger.info(f"WORKFLOW llm task {task_id} done")
-            return {"task_results": task_results, "error_message": None}
+            delta: WorkflowState = {"task_results": task_results, "error_message": None}
+
+            # Layers this task loaded (e.g. "add demo.shp") become its outputs,
+            # so dependent tasks get an explicit reference to them.
+            added_ids = [i for i in _project_layer_ids() if i not in layers_before]
+            if added_ids:
+                delta.update(
+                    _register_outputs(
+                        state, task_id, [_layer_name(i) for i in added_ids], added_ids
+                    )
+                )
+            return delta
 
         except Exception as e:
             _logger.error(f"WORKFLOW llm task {task_id} failed: {e}", exc_info=True)

@@ -25,10 +25,11 @@ from qgis.PyQt.QtCore import (
     QCoreApplication,
     Qt,
     QThread,
+    QTimer,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QSizePolicy
-from qgis.PyQt.QtGui import QFont, QTextCursor
+from qgis.PyQt.QtGui import QDesktopServices, QFont, QTextCursor
 from qgis.core import Qgis, QgsMessageLog, QgsApplication
 
 # Import the code for the dialog
@@ -52,7 +53,7 @@ from .utils.canvas_refresh import (
 )
 from .utils.markdown_converter import markdown_to_html
 from .utils.dependencies import get_missing_packages, DependencyInstallWorker
-from typing import Optional
+from typing import Dict, Optional, Tuple
 import importlib
 
 import os
@@ -60,9 +61,13 @@ import os.path
 import traceback
 import logging
 
-# Chat transcript logger ("geo_agent.chat"): records user questions and LLM
-# responses in the unified GeoAgent log (file, console, and Logs tab).
+# Chat transcript logger ("geo_agent.chat"): records user questions, LLM
+# responses and token usage in the unified GeoAgent log (file, console, and
+# Logs tab).
 _chat_logger = get_logger("chat")
+
+# URL scheme of the model links under processing results in the chat
+MODEL_LINK_SCHEME = "geoagent-model"
 
 
 class GeoAgent:
@@ -113,8 +118,15 @@ class GeoAgent:
         self._last_temperature = None
         self._error_log_path = os.path.join(self.plugin_dir, "geo_agent_error.log")
         self._worker_thread: Optional[QThread] = None
-        self._is_processing = False
         self._deps_worker: Optional[QThread] = None
+        # Conversation/mode of the request in flight
+        self._run_thread_id: Optional[str] = None
+        self._run_mode: Optional[str] = None
+        # Processing runs in this chat, for the model links under each result:
+        # run id -> (executed steps, user request)
+        self._model_runs: Dict[int, Tuple[list, str]] = {}
+        # Tokens used by all requests since QGIS started
+        self._session_tokens = 0
 
     def _log_error(self, context: str, exc: Exception):
         try:
@@ -301,7 +313,7 @@ class GeoAgent:
     def _get_agents(self):
         """Import agent functions from agents module."""
         mod = importlib.import_module(".agents", package=__package__)
-        return mod.build_unified_graph, mod.invoke_app, mod.invoke_app_async
+        return mod.build_unified_graph, mod.invoke_app_async
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -506,6 +518,15 @@ class GeoAgent:
                 except Exception:
                     pass
                 self.dlg.clear_ans.clicked.connect(self.clear_chat)
+            # Links in the chat: model actions under processing results, and
+            # web links (opened in the browser instead of inside the chat)
+            if hasattr(self.dlg, "llm_response"):
+                self.dlg.llm_response.setOpenLinks(False)
+                try:
+                    self.dlg.llm_response.anchorClicked.disconnect()
+                except Exception:
+                    pass
+                self.dlg.llm_response.anchorClicked.connect(self._on_chat_link_clicked)
             # Wire up dependency install button
             if hasattr(self.dlg, "install_deps_button"):
                 try:
@@ -644,13 +665,15 @@ class GeoAgent:
                 self._has_started_thread = True
             else:
                 msgs = [HumanMessage(content=question)]
-            _, _, invoke_app_async = self._get_agents()
+            _, invoke_app_async = self._get_agents()
 
-            # Disable send button to prevent multiple submissions
-            self.dlg.send_chat.setEnabled(False)
+            # Input is already disabled (top of this method); show progress
             self.dlg.send_chat.setText("Processing...")
-            self.dlg.question.setEnabled(False)
-            # self.dlg.send_chat.setText("Processing...")
+
+            # Remember which conversation/mode this run belongs to, so its
+            # executed steps can be read back for model export afterwards
+            self._run_thread_id = self.thread_id
+            self._run_mode = current_mode
 
             # Create and start worker thread for non-blocking inference
             self._worker_thread = LLMWorker(self.app, self.thread_id, msgs, invoke_app_async)
@@ -708,11 +731,22 @@ class GeoAgent:
 
             _chat_logger.info("LLM response: %s", response_text)
 
+            # A processing run can be exported as a model: offer that right
+            # under its result
+            run_id = self._remember_model_run() if self._run_mode == "processing" else None
+
             # Display response
-            self._display_ai_response(response_text)
+            self._display_ai_response(
+                response_text,
+                footer_html=self._model_links_html(run_id) if run_id is not None else "",
+            )
             # Clear input and scroll to bottom
             self.dlg.question.setText("")
             self._scroll_to_bottom()
+
+            if run_id is not None:
+                # Deferred so the reply is shown (and Send re-enabled) first
+                QTimer.singleShot(0, lambda: self._apply_after_run_action(run_id))
         except Exception as e:
             self._log_error("_on_invoke_result", e)
             self.iface.messageBar().pushMessage(
@@ -752,12 +786,22 @@ class GeoAgent:
         self.dlg.send_chat.setEnabled(True)
         self.dlg.send_chat.setText("Send")
         self.dlg.question.setEnabled(True)
-        self._is_processing = False
         # Clean up thread reference
         if self._worker_thread:
+            self._log_token_usage(getattr(self._worker_thread, "usage", None))
             self._worker_thread.quit()
             self._worker_thread.wait()
             self._worker_thread = None
+
+    def _log_token_usage(self, usage) -> None:
+        """Log the tokens the request that just ended used (Logs tab + file)."""
+        if usage is None:
+            return
+        try:
+            self._session_tokens += usage.total_tokens
+            _chat_logger.info(usage.summary(session_total=self._session_tokens))
+        except Exception:
+            pass
 
     def _initialize_agent(
         self,
@@ -879,7 +923,7 @@ class GeoAgent:
 
             # Create LLM and compile LangGraph app
             self.llm = create_llm(provider, api_key=api_key, **client_kwargs)
-            build_unified_graph, _, _ = self._get_agents()
+            build_unified_graph, _ = self._get_agents()
 
             # Use unified graph builder that routes based on mode
             self.app = build_unified_graph(self.llm, mode=mode)
@@ -958,8 +1002,8 @@ class GeoAgent:
             pass
         self._scroll_to_bottom()
 
-    def _display_ai_response(self, response: str) -> None:
-        """Display AI response in the chat area."""
+    def _display_ai_response(self, response: str, footer_html: str = "") -> None:
+        """Display AI response in the chat area (optional HTML line below it)."""
         # Ensure response is a string (safety check)
         if not isinstance(response, str):
             response = str(response)
@@ -981,6 +1025,8 @@ class GeoAgent:
         # The response may have rendered as an HTML list (e.g. a layer
         # listing) - close it out so it doesn't swallow later messages.
         self._break_out_of_list()
+        if footer_html:
+            self.dlg.llm_response.append(footer_html)
         self.dlg.llm_response.append("\n" + "." * 40)
 
         # Re-enable buttons only after response is displayed
@@ -1045,6 +1091,7 @@ class GeoAgent:
 
             self.thread_id = f"geo-agent:{uuid.uuid4().hex}"
             self._has_started_thread = False
+            self._model_runs.clear()
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 "Chat cleared.",
@@ -1055,6 +1102,118 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Failed to clear chat: {str(e)}",
+                level=Qgis.Critical,
+                duration=QGIS_MESSAGE_DURATION,
+            )
+
+    # ── Model export (links under each processing result) ───────────────────
+    def _remember_model_run(self) -> Optional[int]:
+        """Store the executed steps of the processing run that just ended.
+
+        Returns the run's id for its chat links, or None when no
+        geoprocessing step succeeded (nothing to export).
+        """
+        try:
+            from .utils.model_export import collect_steps
+
+            config = {"configurable": {"thread_id": self._run_thread_id}}
+            values = self.app.get_state(config).values
+            steps = collect_steps(values.get("task_results"))
+        except Exception as e:
+            self._log_error("_remember_model_run", e)
+            return None
+        if not steps:
+            return None
+        run_id = max(self._model_runs, default=0) + 1
+        self._model_runs[run_id] = (steps, values.get("user_query", ""))
+        return run_id
+
+    @staticmethod
+    def _model_links_html(run_id: int) -> str:
+        return (
+            f'<a href="{MODEL_LINK_SCHEME}:open/{run_id}">Open in Model Designer</a>'
+            " &nbsp;·&nbsp; "
+            f'<a href="{MODEL_LINK_SCHEME}:save/{run_id}">Save as .model3</a>'
+        )
+
+    def _on_chat_link_clicked(self, url) -> None:
+        """Model links run their action; web links open in the browser."""
+        if url.scheme() == MODEL_LINK_SCHEME:
+            action, _, run_id = url.path().partition("/")
+            if not run_id.isdigit():
+                return
+            if action == "open":
+                self.open_model_in_designer(int(run_id))
+            elif action == "save":
+                self.save_model_file(int(run_id))
+        elif url.scheme() in ("http", "https", "mailto"):
+            QDesktopServices.openUrl(url)
+
+    def _apply_after_run_action(self, run_id: int) -> None:
+        """Settings tab: 'After a processing run' (default: just show it)."""
+        action = self.dlg.get_after_run_action()
+        if action == "designer":
+            self.open_model_in_designer(run_id)
+        elif action == "save":
+            self.save_model_file(run_id)
+
+    def _build_model(self, run_id: int):
+        from .utils.model_export import build_model
+
+        if run_id not in self._model_runs:
+            raise ValueError("this result is no longer available")
+        steps, request = self._model_runs[run_id]
+        return build_model(steps, request)
+
+    def open_model_in_designer(self, run_id: int) -> None:
+        """Open a processing run in the QGIS Model Designer."""
+        try:
+            from .utils.model_export import open_in_model_designer
+
+            open_in_model_designer(self._build_model(run_id))
+        except Exception as e:
+            self._log_error("open_model_in_designer", e)
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                f"Could not open the model: {str(e)}",
+                level=Qgis.Critical,
+                duration=QGIS_MESSAGE_DURATION,
+            )
+
+    def save_model_file(self, run_id: int) -> None:
+        """Save a processing run as a .model3 file."""
+        try:
+            from qgis.PyQt.QtWidgets import QFileDialog
+            from .utils.model_export import (
+                default_models_folder,
+                save_model,
+                suggested_file_name,
+            )
+
+            model = self._build_model(run_id)
+            file_path, _ = QFileDialog.getSaveFileName(
+                self.dlg,
+                "Save Processing Model",
+                os.path.join(default_models_folder(), suggested_file_name(model)),
+                "QGIS Processing Models (*.model3)",
+            )
+            if not file_path:
+                return
+            if not file_path.lower().endswith(".model3"):
+                file_path += ".model3"
+
+            in_toolbox = save_model(model, file_path)
+            message = f"Model saved to {file_path}"
+            if in_toolbox:
+                message += " (Processing Toolbox > Models > GeoAgent)"
+            self.iface.messageBar().pushMessage(
+                "GeoAgent", message, level=Qgis.Success, duration=QGIS_MESSAGE_DURATION
+            )
+        except Exception as e:
+            self._log_error("save_model_file", e)
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                f"Could not save the model: {str(e)}",
                 level=Qgis.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )

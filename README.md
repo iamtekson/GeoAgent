@@ -100,10 +100,19 @@ Behind the scenes, GeoAgent:
 
 1. Splits your request into ordered tasks and decides which need geoprocessing
 2. Searches the full QGIS algorithm registry and picks the best match per task
-3. Fills the algorithm parameters from your wording (units like "5 km" are converted)
-4. Runs the algorithm; on failure it diagnoses the error and retries with a fix (up to 2 times)
+3. Fills the algorithm parameters from your wording (units like "5 km" are converted) and fixes near-miss layer names and option labels
+4. Checks the parameters with QGIS before running; on failure it diagnoses the error and retries with a fix (up to 2 times) — re-filling the parameters when only a value was wrong, or picking another algorithm
 5. Loads outputs into your project and feeds them into the next task
 6. Posts a summary of what was done
+
+### See the workflow as a model
+
+Each processing result in the chat ends with two links for that run:
+
+- **Open in Model Designer** shows the steps that ran in QGIS's Model Designer: each algorithm, its parameters, and how outputs feed the next step. Your layers become model inputs, so you can edit the model, re-run it on other data, or save it from there.
+- **Save as .model3** writes the same model to a file. Saved in your models folder (the default), it appears in the Processing Toolbox under *Models → GeoAgent*.
+
+The links work for every run in the conversation, not just the latest. To do one of these automatically after every run, set **After a processing run** in the Settings tab (default: *Just show the result*).
 
 ### Writing good prompts
 
@@ -113,7 +122,13 @@ Behind the scenes, GeoAgent:
 
 ### Panel controls
 
-**Temperature** (0–1, default 0.8) — lower is more deterministic, better for precise processing tasks. **Max tokens** — caps response length. **Export chat / Clear chat** — save or reset the conversation. The **Logs** tab shows each workflow step, which is the first place to look when something goes wrong.
+**Temperature** (0–1, default 0.8) — lower is more deterministic, better for precise processing tasks. **Max tokens** — caps response length. **After a processing run** — open each run in the Model Designer, ask to save it as a model, or just show the result (see above). **Export chat / Clear chat** — save or reset the conversation. The **Logs** tab shows each workflow step, which is the first place to look when something goes wrong. It also ends every request with the tokens it used, summed over all of the request's LLM calls, and a running total for the QGIS session:
+
+```
+Tokens used: 8,412 (input 7,903, output 509) in 9 LLM calls · total this QGIS session: 25,103
+```
+
+Token counts come from your provider; if it doesn't report them, the line says so.
 
 ## Troubleshooting
 
@@ -141,9 +156,24 @@ geo_agent/
 ├── prompts/                 # System prompts
 ├── dialogs/                 # Qt UI
 ├── config/                  # Settings and constants
-├── utils/                   # Dependency installer, layer matching, helpers
+├── utils/                   # Dependency installer, layer matching, model export, helpers
+├── tests/                   # Headless tests (real QGIS, scripted LLM)
 └── geo_agent.py             # Main plugin class
 ```
+
+### Running the tests
+
+The tests run headless against your QGIS install, executing real Processing algorithms on the bundled demo data, with a scripted stand-in for the LLM, so no API key or Ollama server is needed. They use a throw-away QGIS profile and never touch your settings. From the plugin folder:
+
+```bash
+# Windows (adjust the QGIS version in the path)
+"C:\Program Files\QGIS 4.0.2\bin\python-qgis.bat" -m unittest discover -s tests -v
+
+# Linux / macOS (Python that can `import qgis`)
+QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
+```
+
+See [tests/README.md](tests/README.md) for what each test covers, running a single test, and writing new ones.
 
 Contributions are welcome — fork, create a feature branch, and open a pull request. For bugs, [open an issue](https://github.com/iamtekson/GeoAgent/issues) with your QGIS version, plugin version, and steps to reproduce.
 

@@ -15,10 +15,10 @@ from .filters import (
     select_by_geometry,
 )
 
-# for easy importing geoprocessing tools later
+# Geoprocessing tools are driven by the processing workflow
+# (agents/geoprocessing_flow.py), not offered to the LLM via TOOLS
 from .geoprocessing import (
     execute_processing,
-    list_processing_algorithms,
     get_algorithm_parameters,
     find_processing_algorithm,
     )
@@ -42,10 +42,5 @@ TOOLS = {
         # Filtering & Selection
         select_by_attribute,
         select_by_geometry,
-        # Geoprocessing
-        # execute_processing,
-        # list_processing_algorithms,
-        # get_algorithm_parameters,
-        # find_processing_algorithm,
     ]
 }

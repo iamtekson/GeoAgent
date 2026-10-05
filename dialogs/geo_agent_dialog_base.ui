@@ -88,7 +88,7 @@
                <string>Choose 'Processing' mode to execute geoprocessing tasks.</string>
               </property>
               <property name="text">
-               <string>Processing (Experimental)</string>
+               <string>Processing</string>
               </property>
              </widget>
             </item>
@@ -347,6 +347,62 @@
              </item>
              <item>
               <spacer name="horizontalSpacer_5">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_after_run">
+             <item>
+              <widget class="QToolButton" name="info_after_run">
+               <property name="toolTip">
+                <string>What happens after a processing run. Every result in the chat also has 'Open in Model Designer' and 'Save as .model3' links, whatever you choose here.</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="autoRaise">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_after_run">
+               <property name="text">
+                <string>After a processing run: </string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="after_run_action">
+               <item>
+                <property name="text">
+                 <string>Just show the result</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Open in Model Designer</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Ask to save as .model3</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <spacer name="horizontalSpacer_after_run">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>

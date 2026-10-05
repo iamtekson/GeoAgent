@@ -5,13 +5,18 @@ Geoprocessing sub-graph: the "GeoProcessing Workflow" box of the architecture.
 Runs ONE task at a time with its own scoped state (GeoTaskState):
 
     discover -> select -> inspect -> gather -> execute --success--> END
-                  ^                               |
-                  └──── error_analysis <──failure─┘
+                  ^                    ^          |
+                  | wrong algorithm    | bad      | failure
+                  | (or unknown)       | parameter|
+                  |                    |          v
+                  └────────────────────┴──── error_analysis
 
-On failure the error analysis feeds its diagnosis back into re-selection and
-parameter gathering (excluding the failed algorithm), up to MAX_RETRIES times.
+Before running, execute checks the parameters with QGIS's own validation; a
+rejection skips the LLM error analysis. On failure the diagnosis feeds back
+into parameter gathering (same algorithm, when only a parameter was wrong) or
+into re-selection (excluding the failed algorithm), up to MAX_RETRIES times.
 """
-from typing import Any
+from typing import Any, Dict
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -21,7 +26,11 @@ from ..tools import (
     get_algorithm_parameters,
     execute_processing,
 )
-from ..tools.geoprocessing import get_algorithm_catalog
+from ..tools.geoprocessing import (
+    get_algorithm_catalog,
+    normalize_parameters,
+    validate_parameters,
+)
 from ..prompts.system import (
     ALGORITHM_SELECTION_PROMPT,
     PARAMETER_GATHERING_PROMPT,
@@ -35,6 +44,9 @@ _logger = get_processing_logger()
 
 MAX_RETRIES = 2
 CANDIDATE_LIMIT = 30
+# A "bad parameter" failure retries the same algorithm, but only once: a
+# second failure excludes it so a wrong classification can't burn all retries.
+MAX_SAME_ALGORITHM_FAILURES = 1
 
 
 def _available_layers_text() -> str:
@@ -63,6 +75,55 @@ def _previous_outputs_text(state: GeoTaskState) -> str:
     if not outputs:
         return "None"
     return "\n".join(f"- {label}: {layer}" for label, layer in outputs.items())
+
+
+def _dependency_hint(state: GeoTaskState) -> str:
+    """Point the LLM at the outputs of the tasks this task depends on."""
+    deps = (state.get("task") or {}).get("dependencies") or []
+    outputs = state.get("available_outputs") or {}
+    labels = [
+        label
+        for label in outputs
+        for d in deps
+        if label == f"task_{d}_output" or label.startswith(f"task_{d}_output_")
+    ]
+    if not labels:
+        return ""
+    return (
+        "This task uses the result of an earlier task: use "
+        + ", ".join(labels)
+        + " for the matching input layer parameter.\n"
+    )
+
+
+def _display_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Parameters with layer ids shown as layer names (for prompts/logs)."""
+    try:
+        from qgis.core import QgsProject
+
+        project = QgsProject.instance()
+
+        def show(value: Any) -> Any:
+            if isinstance(value, list):
+                return [show(v) for v in value]
+            if isinstance(value, str):
+                layer = project.mapLayer(value)
+                if layer is not None:
+                    return layer.name()
+            return value
+
+        return {k: show(v) for k, v in (params or {}).items()}
+    except Exception:
+        return dict(params or {})
+
+
+def _failure_kind(raw: str) -> str:
+    """Normalize the LLM's failure classification ('' when unknown)."""
+    text = (raw or "").strip().lower().replace(" ", "_")
+    for kind in ("bad_parameter", "wrong_algorithm", "bad_input_data"):
+        if kind in text:
+            return kind
+    return ""
 
 
 def build_geoprocessing_subgraph(llm) -> Any:
@@ -212,16 +273,36 @@ def build_geoprocessing_subgraph(llm) -> Any:
         task = state.get("task", {})
         metadata = state["algorithm_metadata"]
 
+        # Advanced/hidden parameters that already have a usable value stay at
+        # their defaults (filled below); the LLM only sees their names.
+        basic, advanced = [], []
+        for p in metadata.get("parameters", []):
+            needs_value = not p.get("optional") and p.get("default") is None
+            if (p.get("advanced") or p.get("hidden")) and not needs_value:
+                if not p.get("hidden"):
+                    advanced.append(p)
+                continue
+            basic.append(p)
+
         params_text = "\n".join(
             f"  - {p['name']} ({p['type']}, default: {p.get('default', 'N/A')}): "
             f"{p['description']} [optional: {p.get('optional', False)}]"
             + (f" options: {p['options']}" if p.get("options") else "")
-            for p in metadata.get("parameters", [])
+            for p in basic
         )
+        if advanced:
+            params_text += "\n\nAdvanced parameters (keep defaults unless the task asks):\n" + "\n".join(
+                f"  - {p['name']}: {p['description']}" for p in advanced
+            )
 
         retry_context = ""
         if state.get("error_diagnosis"):
             retry_context = f"\nError diagnosis from failed attempt: {state['error_diagnosis']}\n"
+            if state.get("retry_same_algorithm") and state.get("parameters"):
+                retry_context += (
+                    f"Parameters of the failed attempt: {_display_params(state['parameters'])}\n"
+                    "Keep the values that were right; fix what the diagnosis points to.\n"
+                )
 
         help_section = ""
         if metadata.get("help"):
@@ -240,6 +321,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
                     f"Available layers:\n{_available_layers_text()}\n\n"
                     f"Previous task outputs (label: layer name):\n"
                     f"{_previous_outputs_text(state)}\n"
+                    f"{_dependency_hint(state)}"
                     f"{retry_context}\n"
                     f"Parameters:\n{params_text}"
                 )
@@ -257,6 +339,16 @@ def build_geoprocessing_subgraph(llm) -> Any:
 
         parameters.setdefault("OUTPUT", "TEMPORARY_OUTPUT")
 
+        # Repair near-miss layer names, enum labels, output labels and
+        # parameter-name casing (values QGIS would accept are left as is)
+        parameters, fixes = normalize_parameters(
+            metadata.get("id", state["selected_algorithm"]),
+            parameters,
+            state.get("available_output_ids") or {},
+        )
+        for fix in fixes:
+            _logger.info(f"GEO gather fix: {fix}")
+
         # Fill missing/None values with algorithm defaults
         for p in metadata.get("parameters", []):
             name = p["name"]
@@ -273,19 +365,25 @@ def build_geoprocessing_subgraph(llm) -> Any:
             _logger.error(f"GEO gather: {msg}")
             return {"error_message": msg, "success": False}
 
-        _logger.info(f"GEO gather: {parameters}")
+        _logger.info(f"GEO gather: {_display_params(parameters)}")
         return {"parameters": parameters, "error_message": None}
 
     def execute_node(state: GeoTaskState) -> GeoTaskState:
-        """Run the algorithm; load outputs into the project."""
+        """Validate the parameters with QGIS, then run and load the outputs."""
         if state.get("error_message"):
             return {"success": False}
         if not state.get("selected_algorithm") or state.get("parameters") is None:
             return {"error_message": "No algorithm/parameters to execute", "success": False}
 
         algorithm = state["selected_algorithm"]
-        _logger.info(f"GEO execute: {algorithm}")
 
+        problems = validate_parameters(algorithm, state["parameters"])
+        if problems:
+            error = ("Invalid parameters: " + "; ".join(problems))[:800]
+            _logger.error(f"GEO pre-flight check failed: {error}")
+            return {"error_message": error, "success": False, "validation_failed": True}
+
+        _logger.info(f"GEO execute: {algorithm}")
         result = execute_processing.invoke(
             {"algorithm": algorithm, "parameters": state["parameters"]}
         )
@@ -294,18 +392,25 @@ def build_geoprocessing_subgraph(llm) -> Any:
             output_layers = result.get("output_layers", [])
             _logger.info(f"GEO execute OK -> outputs: {output_layers}")
             return {
-                "execution_result": result,
                 "output_layers": output_layers,
+                "output_layer_ids": result.get("output_layer_ids", []),
+                "outputs": result.get("outputs", {}),
                 "success": True,
                 "error_message": None,
+                "validation_failed": False,
             }
 
         error = str(result.get("error", "Unknown execution error"))[:800]
         _logger.error(f"GEO execute failed: {error}")
-        return {"error_message": error, "success": False}
+        return {"error_message": error, "success": False, "validation_failed": False}
 
     def error_analysis_node(state: GeoTaskState) -> GeoTaskState:
-        """Diagnose the failure and prepare a steered retry."""
+        """Diagnose the failure and decide how to retry.
+
+        A parameter problem retries the same algorithm with re-gathered
+        parameters (once); anything else, or an unknown cause, excludes the
+        algorithm and re-selects.
+        """
         task = state.get("task", {})
         error = state.get("error_message", "Unknown error")
         retry_count = state.get("retry_count", 0)
@@ -313,37 +418,64 @@ def build_geoprocessing_subgraph(llm) -> Any:
 
         _logger.info(f"GEO error analysis (retry {retry_count + 1}/{MAX_RETRIES}): {error}")
 
-        diagnosis = f"Execution failed: {error}"
-        try:
-            analysis: ErrorAnalysis = llm.with_structured_output(ErrorAnalysis).invoke(
-                [
-                    SystemMessage(content=ERROR_ANALYSIS_PROMPT),
-                    HumanMessage(
-                        content=(
-                            f"Task: {task.get('operation', '')}\n"
-                            f"Algorithm attempted: {failed_alg}\n"
-                            f"Parameters: {state.get('parameters')}\n"
-                            f"Error: {error}\n"
-                            f"Available layers:\n{_available_layers_text()}"
-                        )
-                    ),
-                ]
-            )
-            diagnosis = analysis.diagnosis
-            if analysis.suggested_fix:
-                diagnosis += f" Suggested fix: {analysis.suggested_fix}"
-        except Exception as e:
-            _logger.warning(f"GEO error analysis LLM failed: {e}")
+        failures = dict(state.get("algorithm_failures") or {})
+        if failed_alg:
+            failures[failed_alg] = failures.get(failed_alg, 0) + 1
 
+        if state.get("validation_failed"):
+            # QGIS named the bad values itself; no LLM call needed
+            kind = "bad_parameter"
+            diagnosis = (
+                f"QGIS rejected the parameters before running. {error}. "
+                "Use exact names from the available layers / previous outputs "
+                "and valid options."
+            )
+        else:
+            kind = ""
+            diagnosis = f"Execution failed: {error}"
+            try:
+                analysis: ErrorAnalysis = llm.with_structured_output(ErrorAnalysis).invoke(
+                    [
+                        SystemMessage(content=ERROR_ANALYSIS_PROMPT),
+                        HumanMessage(
+                            content=(
+                                f"Task: {task.get('operation', '')}\n"
+                                f"Algorithm attempted: {failed_alg}\n"
+                                f"Parameters: {_display_params(state.get('parameters'))}\n"
+                                f"Error: {error}\n"
+                                f"Available layers:\n{_available_layers_text()}"
+                            )
+                        ),
+                    ]
+                )
+                diagnosis = analysis.diagnosis
+                if analysis.suggested_fix:
+                    diagnosis += f" Suggested fix: {analysis.suggested_fix}"
+                kind = _failure_kind(analysis.failure_kind)
+            except Exception as e:
+                _logger.warning(f"GEO error analysis LLM failed: {e}")
+
+        retry_same = (
+            kind == "bad_parameter"
+            and bool(failed_alg)
+            and failures.get(failed_alg, 0) <= MAX_SAME_ALGORITHM_FAILURES
+        )
         excluded = list(state.get("excluded_algorithms") or [])
-        if failed_alg and failed_alg not in excluded:
+        if failed_alg and not retry_same and failed_alg not in excluded:
             excluded.append(failed_alg)
+        _logger.info(
+            f"GEO retry plan: {kind or 'unknown'} -> "
+            + (f"re-gather parameters for {failed_alg}" if retry_same else "re-select algorithm")
+        )
 
         return {
             "error_diagnosis": diagnosis,
             "excluded_algorithms": excluded,
+            "algorithm_failures": failures,
+            "retry_same_algorithm": retry_same,
             "retry_count": retry_count + 1,
             "error_message": None,
+            "validation_failed": False,
         }
 
     def after_execute(state: GeoTaskState) -> str:
@@ -353,6 +485,9 @@ def build_geoprocessing_subgraph(llm) -> Any:
         if state.get("retry_count", 0) < MAX_RETRIES and state.get("selected_algorithm"):
             return "retry"
         return "done"
+
+    def after_error_analysis(state: GeoTaskState) -> str:
+        return "gather" if state.get("retry_same_algorithm") else "select"
 
     graph = StateGraph(GeoTaskState)
     graph.add_node("discover", discover_node)
@@ -370,9 +505,12 @@ def build_geoprocessing_subgraph(llm) -> Any:
     graph.add_conditional_edges(
         "execute", after_execute, {"retry": "error_analysis", "done": END}
     )
-    # Retry re-enters at selection so the diagnosis can change the algorithm
-    # and/or the parameters (candidates are reused; no re-discovery needed).
-    graph.add_edge("error_analysis", "select")
+    # A parameter problem re-enters at gather (same algorithm, metadata
+    # reused); otherwise at selection so the diagnosis can change the
+    # algorithm (candidates are reused; no re-discovery needed).
+    graph.add_conditional_edges(
+        "error_analysis", after_error_analysis, {"gather": "gather", "select": "select"}
+    )
 
     return graph.compile()
 

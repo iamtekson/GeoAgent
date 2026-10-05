@@ -1,5 +1,7 @@
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
+from .usage import TokenUsageTracker
+
 
 class LLMWorker(QThread):
     """Worker thread for non-blocking LLM inference."""
@@ -14,6 +16,8 @@ class LLMWorker(QThread):
         self.thread_id = thread_id
         self.messages = messages
         self.invoke_app_async = invoke_app_async
+        # Token usage of every LLM call this request makes (read once finished)
+        self.usage = TokenUsageTracker()
 
     def run(self):
         """Run LLM inference in background thread."""
@@ -27,7 +31,10 @@ class LLMWorker(QThread):
                 # Run async invoke - returns the last message (could be AIMessage, ToolMessage, etc.)
                 last_msg = loop.run_until_complete(
                     self.invoke_app_async(
-                        self.app, thread_id=self.thread_id, messages=self.messages
+                        self.app,
+                        thread_id=self.thread_id,
+                        messages=self.messages,
+                        callbacks=[self.usage],
                     )
                 )
                 self.result_ready.emit(last_msg)

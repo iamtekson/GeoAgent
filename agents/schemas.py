@@ -5,7 +5,7 @@ Pydantic schemas for structured LLM outputs in GeoAgent processing workflows.
 These schemas ensure consistent, type-safe responses from different LLM providers
 (Ollama, Gemini, ChatGPT, Anthropic, etc.) by enforcing structured output formats.
 """
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -46,6 +46,14 @@ class TaskDefinition(BaseModel):
 
     task_id: int = Field(description="Sequential task identifier (1, 2, 3, ...)")
     operation: str = Field(description="Human-readable description of the operation")
+    is_geoprocessing: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True if the task runs a QGIS processing algorithm (buffer, clip, "
+            "zonal statistics, ...); false for loading/listing/zooming/selecting "
+            "layers or answering questions"
+        ),
+    )
     algorithm_hint: str = Field(
         default="",
         description="Suggested algorithm family (e.g., 'buffer', 'clip'), empty if not a geoprocessing task",
@@ -81,6 +89,15 @@ class ErrorAnalysis(BaseModel):
     """Analysis of a failed geoprocessing task, used to steer the retry."""
 
     diagnosis: str = Field(description="Clear explanation of why the task failed")
+    failure_kind: str = Field(
+        default="",
+        description=(
+            "One of: 'bad_parameter' (right algorithm, a parameter value is "
+            "wrong), 'wrong_algorithm' (the algorithm can't do this task or "
+            "doesn't accept this data type), 'bad_input_data' (the input data "
+            "itself is the problem)"
+        ),
+    )
     suggested_fix: str = Field(
         default="",
         description="Concrete change to try on retry (different algorithm, corrected parameter, etc.)",
