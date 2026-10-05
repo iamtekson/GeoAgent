@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - **Model export:** each processing result in the chat ends with *Open in Model Designer* and *Save as .model3* links. The run becomes a QGIS processing model, with your layers as inputs and its steps wired together.
 - **New setting, *After a processing run*:** open each run in the Model Designer, or ask to save it, automatically.
