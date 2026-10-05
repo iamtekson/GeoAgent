@@ -38,7 +38,6 @@ from .dialogs.geo_agent_dialog import GeoAgentDialog
 # Import agent and LLM components
 from .config.settings import (
     SUPPORTED_MODELS,
-    DEFAULT_MODEL,
     DEBUG_MODE,
     QGIS_MESSAGE_DURATION,
     SHOW_DEBUG_LOGS,
@@ -112,10 +111,10 @@ class GeoAgent:
         # Agent and LLM components
         self.llm = None
         self.app = None
-        self.current_model = DEFAULT_MODEL
+        # Settings the current llm/app were built from (see _agent_settings)
+        self._agent_settings_used: Optional[tuple] = None
         self.thread_id = "geo-agent"
         self._has_started_thread = False
-        self._last_temperature = None
         self._error_log_path = os.path.join(self.plugin_dir, "geo_agent_error.log")
         self._worker_thread: Optional[QThread] = None
         self._deps_worker: Optional[QThread] = None
@@ -621,34 +620,17 @@ class GeoAgent:
                 question,
             )
 
-            # Initialize app if needed, model changed, or mode changed
-            if (
-                self.app is None
-                or self.current_model != model_name
-                or getattr(self, "_current_mode", None) != current_mode
-            ):
+            # (Re)build the LLM and app on first use or when any setting they
+            # are built from has changed since
+            settings = self._agent_settings(current_mode)
+            if self.app is None or settings != self._agent_settings_used:
                 self._initialize_agent(
                     model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     mode=current_mode,
                 )
-                self._current_mode = current_mode
-
-            # Rebuild app if temperature changed
-            if (
-                self._last_temperature is None
-                or abs(self._last_temperature - temperature) > 1e-9
-            ):
-                # Recreate LLM and app to apply new temperature
-                self._initialize_agent(
-                    model_name,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    mode=current_mode,
-                )
-                self._last_temperature = temperature
-                self._current_mode = current_mode
+                self._agent_settings_used = settings
 
             if self.app is None:
                 raise RuntimeError("LLM app is not initialized")
@@ -803,6 +785,29 @@ class GeoAgent:
         except Exception:
             pass
 
+    def _agent_settings(self, mode: str) -> tuple:
+        """Every setting the LLM client and graph are built from.
+
+        send_message() rebuilds them whenever this changes, so a new model
+        name, API key, Ollama setting or token limit applies to the next
+        message (not only a provider, mode or temperature change).
+        """
+
+        def text(name: str) -> str:
+            widget = getattr(self.dlg, name, None)
+            return widget.text().strip() if widget is not None else ""
+
+        return (
+            self.dlg.model.currentText(),
+            mode,
+            round(self.dlg.temperature.value(), 6),
+            self.dlg.max_tokens.value(),
+            text("model_name"),
+            text("custom_apikey"),
+            text("ollama_base_url"),
+            text("ollama_model_name"),
+        )
+
     def _initialize_agent(
         self,
         model_name: str,
@@ -927,7 +932,6 @@ class GeoAgent:
 
             # Use unified graph builder that routes based on mode
             self.app = build_unified_graph(self.llm, mode=mode)
-            self.current_model = model_name
             # Reset thread on re-init
             self.thread_id = f"geo-agent:{model_name}:{mode}"
             self._has_started_thread = False
