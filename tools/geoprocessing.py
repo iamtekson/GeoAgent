@@ -6,17 +6,23 @@ Provides algorithm discovery (over the FULL processing registry, all providers),
 parameter inspection, and execution with results loaded into the QGIS project.
 """
 import html
+import os
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from langchain_core.tools import tool
 from qgis.core import (
     QgsApplication,
     QgsProcessingAlgorithm,
+    QgsProcessingContext,
     QgsProcessingParameterDefinition,
     QgsProcessingParameterEnum,
 )
 
 from ..config.constants import RASTER_EXTENSIONS
+from ..utils.layer_matching import find_best_layer_match
+from ..logger.processing_logger import get_processing_logger
+
+_logger = get_processing_logger()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Algorithm catalog (cached once per session; the registry rarely changes)
@@ -197,47 +203,19 @@ def find_processing_algorithm(
         raise Exception(f"Find algorithm error: {str(e)}")
 
 
-@tool
-def list_processing_algorithms(
-    search: Optional[str] = None, provider: Optional[str] = None, limit: int = 1000
-) -> Dict[str, Any]:
-    """
-    List available QGIS processing algorithms.
-
-    Args:
-        search: Optional case-insensitive substring to filter by id or name.
-        provider: Optional provider id to filter (e.g., "native", "gdal").
-        limit: Maximum number of algorithms to return.
-
-    Returns:
-        Dict with summary and a list of algorithms {id, name, provider}.
-    """
-    try:
-        catalog = get_algorithm_catalog()
-
-        def matches(entry: Dict[str, Any]) -> bool:
-            if provider and entry["provider"].lower() != provider.lower():
-                return False
-            if search:
-                s = search.lower()
-                return s in entry["id"].lower() or s in entry["name"].lower()
-            return True
-
-        filtered = [e for e in catalog if matches(e)][: max(0, limit)]
-        items = [
-            {"id": e["id"], "name": e["name"], "provider": e["provider"]}
-            for e in filtered
-        ]
-        return {"count": len(items), "total": len(catalog), "items": items}
-    except Exception as e:
-        raise Exception(f"Listing algorithms error: {str(e)}")
-
-
 def _param_optional(param: QgsProcessingParameterDefinition) -> bool:
     try:
         return bool(param.flags() & QgsProcessingParameterDefinition.FlagOptional)
     except Exception:
         # Fallback: some params may not expose flags cleanly
+        return False
+
+
+def _param_flag(param: QgsProcessingParameterDefinition, flag_name: str) -> bool:
+    """True if *param* has the named flag (e.g. 'FlagAdvanced', 'FlagHidden')."""
+    try:
+        return bool(param.flags() & getattr(QgsProcessingParameterDefinition, flag_name))
+    except Exception:
         return False
 
 
@@ -275,6 +253,10 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
                 "description": p.description(),
                 "type": _param_type_name(p),
                 "optional": _param_optional(p),
+                # Advanced/hidden params are collapsed or invisible in the
+                # QGIS algorithm dialog; the gather step keeps them at default.
+                "advanced": _param_flag(p, "FlagAdvanced"),
+                "hidden": _param_flag(p, "FlagHidden"),
             }
             # Default value if available
             try:
@@ -324,6 +306,236 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
         raise Exception(f"Describe algorithm error: {str(e)}")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Parameter normalization & pre-flight validation
+#
+# Rule: a value is only rewritten when QGIS itself would reject it, so values
+# that work today pass through untouched. The one exception is a reference to
+# an output of the current workflow (label or layer name), which is pinned to
+# that output's layer id so a same-named older layer can't be picked instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Parameter types whose value is a single layer reference (or a list of them
+# for "multilayer"); vector/raster restricts which layers fuzzy matching sees.
+_VECTOR_PARAM_TYPES = {"source", "vector"}
+_RASTER_PARAM_TYPES = {"raster"}
+LAYER_PARAM_TYPES = _VECTOR_PARAM_TYPES | _RASTER_PARAM_TYPES | {
+    "layer",
+    "mesh",
+    "pointcloud",
+    "multilayer",
+}
+
+
+def _processing_context() -> QgsProcessingContext:
+    """A context set up the same way processing.run() sets up its own."""
+    try:
+        from processing.tools.dataobjects import createContext
+
+        return createContext()
+    except Exception:
+        from qgis.core import QgsProject
+
+        context = QgsProcessingContext()
+        context.setProject(QgsProject.instance())
+        return context
+
+
+def _acceptable(definition, value, context) -> bool:
+    try:
+        return bool(definition.checkValueIsAcceptable(value, context))
+    except Exception:
+        return True  # can't tell; leave the value alone
+
+
+def _candidate_layers(param_type: str) -> Dict[str, Any]:
+    """Project layers (id -> layer) compatible with a layer parameter type."""
+    from qgis.core import QgsProject, QgsVectorLayer, QgsRasterLayer
+
+    layers = QgsProject.instance().mapLayers()
+    if param_type in _VECTOR_PARAM_TYPES:
+        return {i: l for i, l in layers.items() if isinstance(l, QgsVectorLayer)}
+    if param_type in _RASTER_PARAM_TYPES:
+        return {i: l for i, l in layers.items() if isinstance(l, QgsRasterLayer)}
+    return dict(layers)
+
+
+def _resolve_layer_reference(
+    value: Any, definition, context, output_refs: Dict[str, str]
+) -> Tuple[Any, Optional[str]]:
+    """Resolve one layer reference; returns (value, note-if-changed)."""
+    from qgis.core import QgsProject
+
+    if not isinstance(value, str) or not value.strip():
+        return value, None
+    project = QgsProject.instance()
+    text = value.strip()
+
+    # 1. Output label of an earlier task ("task_2_output" / "@task_2_output")
+    label = text.lstrip("@").strip()
+    for key, layer_id in output_refs.items():
+        if label.lower() == key.lower() and project.mapLayer(layer_id):
+            return layer_id, f"{value!r} -> output {key}"
+
+    # 2. Display name of an output of this workflow: pin it to that layer
+    for key, layer_id in output_refs.items():
+        layer = project.mapLayer(layer_id)
+        if layer and layer.name() == text and text != layer_id:
+            return layer_id, f"{value!r} -> output {key} (layer id)"
+
+    # 3. Already acceptable (exact layer name, id, or file path): keep
+    if _acceptable(definition, value, context):
+        return value, None
+
+    # 4. Fuzzy match against compatible project layers
+    candidates = _candidate_layers(definition.type())
+    if not candidates:
+        return value, None
+    names = [layer.name() for layer in candidates.values()]
+    match = find_best_layer_match(text, names)
+    if match:
+        for layer_id, layer in candidates.items():
+            if layer.name() == match and _acceptable(definition, layer_id, context):
+                return layer_id, f"{value!r} -> layer '{match}'"
+    return value, None
+
+
+def _resolve_enum(value: Any, definition, context) -> Tuple[Any, Optional[str]]:
+    """Map an enum label (e.g. 'Round') to what QGIS expects (index or label)."""
+    if _acceptable(definition, value, context):
+        return value, None
+    try:
+        options = [str(o) for o in definition.options()]
+        static = bool(getattr(definition, "usesStaticStrings", lambda: False)())
+        multiple = bool(definition.allowMultiple())
+    except Exception:
+        return value, None
+
+    def one(v: Any) -> Any:
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if not static and re.fullmatch(r"-?\d+", s):
+                return int(s)
+            exact = [i for i, o in enumerate(options) if o.lower() == s]
+            partial = [i for i, o in enumerate(options) if s and (s in o.lower() or o.lower() in s)]
+            hits = exact or partial
+            if len(hits) == 1:
+                return options[hits[0]] if static else hits[0]
+        elif isinstance(v, int) and not isinstance(v, bool) and static:
+            if 0 <= v < len(options):
+                return options[v]
+        return v
+
+    fixed = [one(v) for v in value] if (multiple and isinstance(value, list)) else one(value)
+    if fixed != value and _acceptable(definition, fixed, context):
+        return fixed, f"{value!r} -> {fixed!r}"
+    return value, None
+
+
+def normalize_parameters(
+    algorithm: str,
+    parameters: Dict[str, Any],
+    output_refs: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Repair common LLM slips in a parameter dict before execution.
+
+    - parameter names in the wrong case ("input" -> "INPUT")
+    - references to earlier outputs ("task_1_output" -> that layer's id)
+    - near-miss layer names ("River" -> layer "rivers")
+    - enum labels instead of indexes ("Round" -> 0)
+
+    Args:
+        algorithm: Algorithm id.
+        parameters: Parameter dict as gathered.
+        output_refs: Workflow output label -> layer id.
+
+    Returns:
+        (parameters, notes): the repaired dict (a copy) and one note per change.
+        On any internal error the input is returned unchanged.
+    """
+    params = dict(parameters)
+    notes: List[str] = []
+    try:
+        alg = QgsApplication.processingRegistry().algorithmById(algorithm)
+        if alg is None:
+            return params, notes
+        context = _processing_context()
+        refs = output_refs or {}
+
+        definitions = {d.name(): d for d in alg.parameterDefinitions()}
+        lower_names = {name.lower(): name for name in definitions}
+        for key in list(params):
+            if key not in definitions and key.lower() in lower_names:
+                canonical = lower_names[key.lower()]
+                if canonical not in params:
+                    params[canonical] = params.pop(key)
+                    notes.append(f"{key} -> {canonical}")
+
+        for name, definition in definitions.items():
+            if name not in params or definition.isDestination():
+                continue
+            value = params[name]
+            param_type = definition.type()
+            note = None
+            if param_type in LAYER_PARAM_TYPES:
+                if isinstance(value, list):
+                    fixed = []
+                    for v in value:
+                        fv, n = _resolve_layer_reference(v, definition, context, refs)
+                        fixed.append(fv)
+                        note = note or n
+                    # Only keep the list rewrite if QGIS accepts the result
+                    if note and (
+                        _acceptable(definition, fixed, context)
+                        or not _acceptable(definition, value, context)
+                    ):
+                        value = fixed
+                    else:
+                        note = None
+                else:
+                    value, note = _resolve_layer_reference(value, definition, context, refs)
+            elif param_type == "enum":
+                value, note = _resolve_enum(value, definition, context)
+            if note:
+                params[name] = value
+                notes.append(f"{name}: {note}")
+    except Exception as e:
+        _logger.warning(f"Parameter normalization skipped: {e}")
+        return dict(parameters), []
+    return params, notes
+
+
+def validate_parameters(algorithm: str, parameters: Dict[str, Any]) -> List[str]:
+    """Run QGIS's own parameter check (the same one processing.run() does).
+
+    Returns a list of problems (empty when valid). The pass/fail decision is
+    exactly QGIS's checkParameterValues(), so nothing that would run is
+    rejected; the per-parameter lines just name every bad value at once.
+    If the check itself errors, returns [] and leaves it to execution.
+    """
+    try:
+        alg = QgsApplication.processingRegistry().algorithmById(algorithm)
+        if alg is None:
+            return [f"Algorithm not found: {algorithm}"]
+        context = _processing_context()
+        ok, message = alg.checkParameterValues(parameters, context)
+        if ok:
+            return []
+        problems = [message] if message else []
+        for definition in alg.parameterDefinitions():
+            if definition.isDestination():
+                continue
+            value = parameters.get(definition.name())
+            if not _acceptable(definition, value, context):
+                line = f"{definition.name()} ({definition.description()}): {value!r} is not a valid value"
+                if not any(definition.name() in p for p in problems):
+                    problems.append(line)
+        return problems or ["QGIS rejected the parameter values"]
+    except Exception as e:
+        _logger.warning(f"Parameter validation skipped: {e}")
+        return []
+
+
 def _unique_layer_name(base: str) -> str:
     """Return a project-unique layer name derived from *base*."""
     from qgis.core import QgsProject
@@ -342,11 +554,11 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
     """
     Execute a processing algorithm and load results into the QGIS map.
 
-    Returns a dict with 'success', 'output_layers' (project layer names or
-    file paths usable as inputs for follow-up tasks), and the raw result.
+    Returns a dict with 'success', 'output_layers' (project layer names usable
+    as inputs for follow-up tasks), 'output_layer_ids' (same order), 'outputs'
+    (algorithm output name -> layer id), and the raw result.
     """
     try:
-        import os
         import processing
         from qgis.core import QgsProject, QgsMapLayer, QgsRasterLayer, QgsVectorLayer
 
@@ -357,16 +569,23 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
 
         project = QgsProject.instance()
         output_layers: List[str] = []
+        output_layer_ids: List[str] = []
+        outputs: Dict[str, str] = {}
         base_name = f"Result - {algorithm.split(':')[-1]}"
 
         # Load every output layer/path into the project and record a usable
-        # reference (project layer name or file path) for downstream tasks.
-        for value in result.values():
+        # reference (project layer name + id) for downstream tasks.
+        for output_name, value in result.items():
             if isinstance(value, QgsMapLayer):
-                if not value.name():
-                    value.setName(_unique_layer_name(base_name))
-                project.addMapLayer(value)
+                if project.mapLayer(value.id()) is None:
+                    # Temporary outputs come back with generic names
+                    # ("Buffered"); keep them unique so they can't be confused
+                    # with an earlier result of the same algorithm.
+                    value.setName(_unique_layer_name(value.name() or base_name))
+                    project.addMapLayer(value)
                 output_layers.append(value.name())
+                output_layer_ids.append(value.id())
+                outputs[output_name] = value.id()
             elif isinstance(value, str) and value and value != "TEMPORARY_OUTPUT":
                 file_ext = os.path.splitext(value)[-1].lower()
                 if not file_ext and not os.path.exists(value):
@@ -381,6 +600,8 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                 if lyr and lyr.isValid():
                     project.addMapLayer(lyr)
                     output_layers.append(layer_name)
+                    output_layer_ids.append(lyr.id())
+                    outputs[output_name] = lyr.id()
 
         return {
             "algorithm": algorithm,
@@ -388,6 +609,8 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
             "success": True,
             "layer_added": bool(output_layers),
             "output_layers": output_layers,
+            "output_layer_ids": output_layer_ids,
+            "outputs": outputs,
             "result": {k: str(v) for k, v in result.items()},
         }
     except Exception as e:
@@ -403,8 +626,9 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
 
 __all__ = [
     "execute_processing",
-    "list_processing_algorithms",
     "get_algorithm_parameters",
     "find_processing_algorithm",
     "get_algorithm_catalog",
+    "normalize_parameters",
+    "validate_parameters",
 ]

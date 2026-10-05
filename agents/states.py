@@ -33,6 +33,8 @@ class WorkflowState(TypedDict, total=False):
     task_results: Dict[int, Dict[str, Any]]
     # label ("task_1_output") -> layer name/path, for dependency injection
     available_outputs: Dict[str, str]
+    # label -> project layer id (unambiguous even if names repeat)
+    available_output_ids: Dict[str, str]
     current_task_is_processing: bool
     error_message: Optional[str]
     error_analysis: Optional[Dict[str, Any]]
@@ -44,15 +46,24 @@ class GeoTaskState(TypedDict, total=False):
     task: Dict[str, Any]
     user_query: str
     available_outputs: Dict[str, str]
+    available_output_ids: Dict[str, str]
     algorithm_candidates: List[Dict[str, Any]]
     excluded_algorithms: List[str]
     selected_algorithm: Optional[str]
     algorithm_metadata: Optional[Dict[str, Any]]
     parameters: Optional[Dict[str, Any]]
-    execution_result: Optional[Dict[str, Any]]
     output_layers: List[str]
+    output_layer_ids: List[str]
+    # algorithm output name ("OUTPUT") -> layer id, for model export
+    outputs: Dict[str, str]
     error_message: Optional[str]
     error_diagnosis: Optional[str]
+    # True when QGIS rejected the parameters before running (pre-flight check)
+    validation_failed: bool
+    # algorithm id -> number of failed attempts in this task
+    algorithm_failures: Dict[str, int]
+    # retry with the same algorithm (re-gather parameters only)
+    retry_same_algorithm: bool
     retry_count: int
     success: bool
 

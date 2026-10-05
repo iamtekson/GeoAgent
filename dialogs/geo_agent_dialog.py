@@ -38,6 +38,9 @@ FORM_CLASS, _ = uic.loadUiType(
 # temperature, max tokens, and per-provider API keys) so they survive a QGIS restart.
 SETTINGS_PREFIX = "GeoAgent/"
 
+# "After a processing run" choices, in the order of the after_run_action combo
+AFTER_RUN_ACTIONS = ("none", "designer", "save")
+
 
 class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
     def __init__(self, parent=None):
@@ -106,6 +109,7 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                 "info_api_key",
                 "info_ollama_base_url",
                 "info_ollama_model_name",
+                "info_after_run",
             ):
                 btn = getattr(self, btn_name, None)
                 if btn:
@@ -162,6 +166,13 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         except Exception:
             pass
         return "general"
+
+    def get_after_run_action(self) -> str:
+        """What to do after a processing run: 'none', 'designer' or 'save'."""
+        try:
+            return AFTER_RUN_ACTIONS[self.after_run_action.currentIndex()]
+        except (AttributeError, IndexError):
+            return "none"
 
     def get_ui_log_handler(self):
         """
@@ -312,6 +323,10 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
             )
             if ollama_model_name and hasattr(self, "ollama_model_name"):
                 self.ollama_model_name.setText(ollama_model_name)
+
+            after_run = settings.value(f"{SETTINGS_PREFIX}after_run_action", "", type=str)
+            if after_run in AFTER_RUN_ACTIONS and hasattr(self, "after_run_action"):
+                self.after_run_action.setCurrentIndex(AFTER_RUN_ACTIONS.index(after_run))
         except Exception:
             pass
 
@@ -350,6 +365,9 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
                     f"{SETTINGS_PREFIX}ollama_model_name",
                     self.ollama_model_name.text().strip(),
                 )
+            settings.setValue(
+                f"{SETTINGS_PREFIX}after_run_action", self.get_after_run_action()
+            )
 
             if hasattr(self, "settings_status_label"):
                 self.settings_status_label.setText("Settings saved.")

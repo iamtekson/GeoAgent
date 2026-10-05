@@ -16,7 +16,6 @@ from .schemas import (
 from .graph import (
     build_graph_app,
     build_unified_graph,
-    invoke_app,
     invoke_app_async,
 )
 from .workflow import build_workflow_graph
@@ -40,6 +39,5 @@ __all__ = [
     "build_workflow_graph",
     "build_geoprocessing_subgraph",
     # Invocation helpers
-    "invoke_app",
     "invoke_app_async",
 ]

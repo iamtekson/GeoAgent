@@ -5,7 +5,7 @@ Graph builders for GeoAgent.
 - General mode: conversational LLM ⇄ tools loop (figure A).
 - Processing mode: multi-step workflow with the geoprocessing sub-graph (figure B).
 """
-from typing import Any, List, Sequence
+from typing import Any, List, Optional, Sequence
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -112,36 +112,38 @@ def build_unified_graph(llm, mode: str = "general") -> Any:
     return build_graph_app(llm)
 
 
-def _invoke_config(thread_id: str) -> dict:
+def _invoke_config(thread_id: str, callbacks: Optional[list] = None) -> dict:
     # Generous recursion limit: each workflow task spans several graph steps.
-    return {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
-
-
-def invoke_app(app, thread_id: str, messages: List[BaseMessage]) -> AIMessage:
-    """Invoke the compiled app and return the last AI message."""
-    result = app.invoke({"messages": messages}, config=_invoke_config(thread_id))
-    return result["messages"][-1]
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
+    if callbacks:
+        # Inherited by every LLM call inside the graph (incl. sub-graphs)
+        config["callbacks"] = callbacks
+    return config
 
 
 async def invoke_app_async(
-    app, thread_id: str, messages: List[BaseMessage]
+    app,
+    thread_id: str,
+    messages: List[BaseMessage],
+    callbacks: Optional[list] = None,
 ) -> AIMessage:
     """
     Invoke the compiled app asynchronously and return the last AI message.
 
     Uses app.ainvoke() if available, otherwise falls back to invoke().
+    *callbacks* (e.g. a TokenUsageTracker) see every LLM call of the run.
     """
     state = {"messages": messages}
+    config = _invoke_config(thread_id, callbacks)
     try:
-        result = await app.ainvoke(state, config=_invoke_config(thread_id))
+        result = await app.ainvoke(state, config=config)
     except (AttributeError, NotImplementedError):
-        result = app.invoke(state, config=_invoke_config(thread_id))
+        result = app.invoke(state, config=config)
     return result["messages"][-1]
 
 
 __all__ = [
     "build_graph_app",
     "build_unified_graph",
-    "invoke_app",
     "invoke_app_async",
 ]
