@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 76 tests in 10.3s
+Ran 77 tests in 11.1s
 
 OK
 ```
@@ -154,6 +154,7 @@ These use the real `GeoAgent` class, dialog, and background worker thread, with 
 | `test_17_initialize_agent_builds_both_modes` | the real provider setup builds both modes (skipped without `langchain-openai`) |
 | `test_18_error_log_falls_back_when_file_is_unwritable` | if the error-log file can't be written, the error still reaches the QGIS log |
 | `test_19_corrupted_saved_setting_does_not_block_the_panel` | a corrupted saved value is logged and the default kept; the panel still opens |
+| `test_20_qgis_messages_keep_their_level_in_the_logs` | QGIS messages shown in the Logs tab keep their level (info stays info) |
 | `test_99_unload_twice_is_safe` | unloading the plugin twice doesn't fail |
 | `UILogHandlerTest.test_deleted_logs_tab_is_dropped_not_crashed_on` | after the Logs tab is deleted (plugin unloaded), logging carries on without errors |
 

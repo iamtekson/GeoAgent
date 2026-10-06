@@ -14,6 +14,7 @@ from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QEventLoop, QSettings, QTimer, QUrl
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import QFileDialog, QMainWindow, QTextBrowser
+from qgis.core import Qgis
 
 import geo_agent.geo_agent as plugin_module
 from geo_agent.agents.graph import build_unified_graph
@@ -299,6 +300,18 @@ class PluginTest(unittest.TestCase):
             dialog.deleteLater()
         finally:
             settings.remove("GeoAgent/temperature")
+
+    def test_20_qgis_messages_keep_their_level_in_the_logs(self):
+        expected = {
+            Qgis.MessageLevel.Info: "INFO",
+            Qgis.MessageLevel.Success: "INFO",
+            Qgis.MessageLevel.Warning: "WARNING",
+            Qgis.MessageLevel.Critical: "ERROR",
+        }
+        for qgis_level, log_level in expected.items():
+            with self.assertLogs("geo_agent.ui", level="DEBUG") as logs:
+                self.plugin._on_qgis_message("hello", "Test", qgis_level)
+            self.assertEqual(logs.records[0].levelname, log_level, qgis_level)
 
     def test_99_unload_twice_is_safe(self):
         # Runs last: tearDownClass unloads again
