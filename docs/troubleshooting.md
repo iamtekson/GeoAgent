@@ -11,6 +11,7 @@
 | A task failed after retries | The reply and the Logs tab explain why. Often a layer has the wrong geometry type or CRS for the operation, or a field name doesn't exist. |
 | Processing results are poor with a small local model | Use a larger model (8B parameters or more) or a cloud provider. See [LLM providers](llm-providers.md). |
 | No model links under a result | Only runs with at least one successful geoprocessing step can be exported. See [Model export](user-guide/model-export.md). |
+| `Error executing tool ...: Thread <id> result not found in runner` (macOS, Linux) | A bug in GeoAgent 0.6.0 and earlier: the tool ran, but its result was lost on the way back. Update GeoAgent from **Plugins ▸ Manage and Install Plugins**. |
 | The plugin misbehaves after an update | Restart QGIS, or disable and re-enable the plugin. |
 
 When reporting a bug, [open an issue](https://github.com/iamtekson/GeoAgent/issues). Include your QGIS version, the GeoAgent version, your provider and model, and the relevant lines from the Logs tab.

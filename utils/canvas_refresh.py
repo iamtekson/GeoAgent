@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Canvas refresh utilities for thread-safe QGIS map canvas updates.
+Run QGIS-touching code on the main Qt thread from the LLM worker thread.
 
-This module provides a RefreshDispatcher QObject for safe canvas refresh
-operations on the main Qt thread, along with getter/setter functions for
-managing the QGIS interface and refresh callback references.
+Provides the MainThreadRunner QObject and the @qgis_main_thread decorator
+that tools use, along with getter/setter functions for the QGIS interface.
 """
-from qgis.PyQt.QtCore import QObject, pyqtSlot, QMetaObject, Qt, Q_ARG
+from qgis.PyQt.QtCore import QObject, QThread, pyqtSlot, QMetaObject, Qt, Q_ARG
 from functools import wraps
-import threading
 
 
 # Global references (will be updated from the geo_agent module)
@@ -27,66 +25,49 @@ def get_qgis_interface():
 
 class MainThreadRunner(QObject):
     """A single dispatcher to run ANY function on the QGIS main thread."""
-    
-    def __init__(self):
-        super().__init__()
-        self._results = {}  # Dictionary to store results per thread ID
-        self._lock = threading.Lock()  # Lock to protect the results dictionary
 
-    @pyqtSlot(object, list, dict, int)
-    def run_task(self, func, args, kwargs, thread_id):
-        """Internal slot to execute the function and store result."""
-        result = None
-        error = None
+    @pyqtSlot(object)
+    def run_task(self, call):
+        """Run a call queued by execute_on_main_thread; its outcome goes back on it."""
         try:
-            result = func(*args, **kwargs)
-        except Exception as e:
-            error = e
-        
-        # Store the result/error for this specific thread
-        with self._lock:
-            self._results[thread_id] = (result, error)
+            call["result"] = call["func"](*call["args"], **call["kwargs"])
+        except Exception as e:  # re-raised in the calling thread
+            call["error"] = e
+
 
 def execute_on_main_thread(func, *args, **kwargs):
     """
     Call this from your Tool to safely run QGIS logic.
-    It blocks the worker thread until the main thread finishes the task.
+    It blocks the worker thread until the main thread finishes the task, then
+    returns the function's result (or raises its exception).
     """
     # We need a reference to the runner living on the main thread
     # In GeoAgent.__init__, you should create: self.main_runner = MainThreadRunner()
     # and register it via set_main_runner(self.main_runner)
-    runner = _global_main_runner 
+    runner = _global_main_runner
     if not runner:
         raise RuntimeError("MainThreadRunner is not set. Please set it using set_main_runner().")
-    
-    # Get the current thread ID to isolate results
-    thread_id = threading.get_ident()
-    
-    # This is the magic part: invokeMethod with BlockingQueuedConnection
+
+    # Already on the main thread: a blocking queued call to it would deadlock
+    if QThread.currentThread() == runner.thread():
+        return func(*args, **kwargs)
+
+    # The call travels as one object and comes back carrying its outcome.
+    # (Results used to be looked up by thread id, passed through Qt as a
+    # 32-bit int; macOS and Linux thread ids don't fit, so results were lost:
+    # "Thread <id> result not found in runner", issue #62.)
+    call = {"func": func, "args": args, "kwargs": kwargs}
     QMetaObject.invokeMethod(
-        runner, 
-        "run_task", 
+        runner,
+        "run_task",
         Qt.ConnectionType.BlockingQueuedConnection,
-        Q_ARG(object, func),
-        Q_ARG(list, list(args)),
-        Q_ARG(dict, kwargs),
-        Q_ARG(int, thread_id)
+        Q_ARG(object, call),
     )
-    
-    # Retrieve and cleanup the result for this thread
-    try:
-        with runner._lock:
-            if thread_id not in runner._results:
-                raise RuntimeError(f"Thread {thread_id} result not found in runner")
-            result, error = runner._results[thread_id]
-        
-        if error:
-            raise error
-        return result
-    finally:
-        # Always cleanup the result from the dictionary, even if an exception occurs
-        with runner._lock:
-            runner._results.pop(thread_id, None)
+    if "error" in call:
+        raise call["error"]
+    if "result" not in call:  # the slot never ran
+        raise RuntimeError("Could not run the call on the QGIS main thread")
+    return call["result"]
 
 def set_main_runner(runner: MainThreadRunner):
     global _global_main_runner
