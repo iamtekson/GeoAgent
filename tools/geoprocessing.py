@@ -205,7 +205,7 @@ def find_processing_algorithm(
 
 def _param_optional(param: QgsProcessingParameterDefinition) -> bool:
     try:
-        return bool(param.flags() & QgsProcessingParameterDefinition.FlagOptional)
+        return bool(param.flags() & QgsProcessingParameterDefinition.Flag.FlagOptional)
     except Exception:
         # Fallback: some params may not expose flags cleanly
         return False
@@ -214,7 +214,7 @@ def _param_optional(param: QgsProcessingParameterDefinition) -> bool:
 def _param_flag(param: QgsProcessingParameterDefinition, flag_name: str) -> bool:
     """True if *param* has the named flag (e.g. 'FlagAdvanced', 'FlagHidden')."""
     try:
-        return bool(param.flags() & getattr(QgsProcessingParameterDefinition, flag_name))
+        return bool(param.flags() & getattr(QgsProcessingParameterDefinition.Flag, flag_name))
     except Exception:
         return False
 

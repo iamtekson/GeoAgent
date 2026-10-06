@@ -18,8 +18,10 @@
 - **Web links** in replies open in the browser.
 - **Fixed:** changing the model name, API key, Ollama settings or maximum tokens now applies to your next message; before, it only took effect after the provider, mode or temperature changed. The first message no longer sets up the model twice.
 - **For developers:** a headless test suite and this documentation site.
-- - **Security scan:** resolved all Bandit findings reported by the QGIS plugin repository. Errors are no longer silently swallowed; where a failure is expected (a corrupted saved setting, an unwritable error-log file, a deleted Logs tab after reloading the plugin), it's handled and logged.
+- **Security scan:** resolved all Bandit findings reported by the QGIS plugin repository. Errors are no longer silently swallowed; where a failure is expected (a corrupted saved setting, an unwritable error-log file, a deleted Logs tab after reloading the plugin), it's handled and logged.
 - The layer list given to the model now describes geometry-less tables and non-vector, non-raster layers (mesh, point cloud, ...) correctly.
+- **Qt6 compatibility:** all QGIS enum values are now written in their scoped form (for example `Qgis.MessageLevel.Critical`), as the QGIS plugin repository's Qt6 check requires. This works on QGIS 3 and QGIS 4.
+- **Fixed:** QGIS information messages mirrored into the Logs tab were labelled CRITICAL; they now keep their real level.
 
 ## 0.5.0
 

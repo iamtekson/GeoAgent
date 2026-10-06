@@ -43,13 +43,13 @@ def select_by_attribute(
         project = QgsProject.instance()
 
         # Find layer (fuzzy match to tolerate spacing/casing/filler-word differences)
-        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.VectorLayer)
+        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.LayerType.VectorLayer)
 
         if not layer:
             available_layers = [
                 lyr.name()
                 for lyr in project.mapLayers().values()
-                if lyr.type() == QgsMapLayer.VectorLayer
+                if lyr.type() == QgsMapLayer.LayerType.VectorLayer
             ]
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
@@ -141,13 +141,13 @@ def select_by_geometry(
         project = QgsProject.instance()
 
         # Find main layer (fuzzy match to tolerate spacing/casing/filler-word differences)
-        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.VectorLayer)
+        layer, matched_name = find_layer(project, layer_name, layer_type=QgsMapLayer.LayerType.VectorLayer)
 
         if not layer:
             available_layers = [
                 lyr.name()
                 for lyr in project.mapLayers().values()
-                if lyr.type() == QgsMapLayer.VectorLayer
+                if lyr.type() == QgsMapLayer.LayerType.VectorLayer
             ]
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
@@ -195,14 +195,14 @@ def select_by_geometry(
 
             # Find reference layer (fuzzy match to tolerate spacing/casing/filler-word differences)
             ref_layer, ref_matched_name = find_layer(
-                project, reference_layer_name, layer_type=QgsMapLayer.VectorLayer
+                project, reference_layer_name, layer_type=QgsMapLayer.LayerType.VectorLayer
             )
 
             if not ref_layer:
                 available_layers = [
                     lyr.name()
                     for lyr in project.mapLayers().values()
-                    if lyr.type() == QgsMapLayer.VectorLayer
+                    if lyr.type() == QgsMapLayer.LayerType.VectorLayer
                 ]
                 return f"**Error:** Reference layer **{reference_layer_name}** not found. Available layers: {', '.join(available_layers)}"
 

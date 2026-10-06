@@ -138,7 +138,7 @@ class GeoAgent:
         except OSError as e:
             details += f"\n(Could not write {self._error_log_path}: {e})"
         # Also send to QGIS log panel
-        QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
+        QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.MessageLevel.Critical)
         # Mirror to UI logger if available
         if hasattr(self, "_ui_logger"):
             self._ui_logger.error(f"[{context}] {exc}\n{details}")
@@ -171,7 +171,7 @@ class GeoAgent:
             QgsMessageLog.logMessage(
                 f"GeoAgent file logging unavailable: {exc}",
                 "GeoAgent",
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
             )
             agent_logger = get_logger()
             agent_logger.setLevel(level)
@@ -216,11 +216,10 @@ class GeoAgent:
     def _on_qgis_message(self, message, tag, level):
         """Slot to mirror QGIS messages into the UI log."""
         level_map = {
-            getattr(Qgis, "Info", 0): logging.INFO,
-            getattr(Qgis, "Success", 0): logging.INFO,
-            getattr(Qgis, "Warning", 0): logging.WARNING,
-            getattr(Qgis, "Critical", 0): logging.ERROR,
-            getattr(Qgis, "Fatal", 0): logging.CRITICAL,
+            Qgis.MessageLevel.Info: logging.INFO,
+            Qgis.MessageLevel.Success: logging.INFO,
+            Qgis.MessageLevel.Warning: logging.WARNING,
+            Qgis.MessageLevel.Critical: logging.ERROR,
         }
         log_level = level_map.get(level, logging.INFO)
         if hasattr(self, "_ui_logger"):
@@ -238,7 +237,7 @@ class GeoAgent:
                 "GeoAgent",
                 "Some required packages aren't installed yet. "
                 "Go to the Settings tab and click 'Check / Install Dependencies'.",
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -283,7 +282,7 @@ class GeoAgent:
         self.iface.messageBar().pushMessage(
             "GeoAgent",
             message,
-            level=Qgis.Success if success else Qgis.Critical,
+            level=Qgis.MessageLevel.Success if success else Qgis.MessageLevel.Critical,
             duration=QGIS_MESSAGE_DURATION,
         )
         if self._deps_worker:
@@ -437,7 +436,7 @@ class GeoAgent:
                 'MainThreadRunner was not initialized in initGui(). '
                 'This may indicate a problem with plugin initialization.',
                 'GeoAgent',
-                level=Qgis.Warning
+                level=Qgis.MessageLevel.Warning
             )
             # Create it here as a fallback, though this is not ideal for threading
             self.main_runner = MainThreadRunner()
@@ -479,7 +478,7 @@ class GeoAgent:
                 self._setup_ui_logging()
             except Exception as e:
                 QgsMessageLog.logMessage(
-                    f"Failed to setup UI logging: {e}", "GeoAgent", level=Qgis.Warning
+                    f"Failed to setup UI logging: {e}", "GeoAgent", level=Qgis.MessageLevel.Warning
                 )
 
         # show and focus the dock widget
@@ -494,7 +493,7 @@ class GeoAgent:
             QgsMessageLog.logMessage(
                 f"Failed to resize: {e}",
                 "GeoAgent",
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
             )
 
         # Ensure UI logging stays connected on subsequent runs
@@ -504,7 +503,7 @@ class GeoAgent:
             QgsMessageLog.logMessage(
                 f"Failed to ensure UI logging stays connected: {e}",
                 "GeoAgent",
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
             )
 
     def showMessage(self, title, msg, button, icon, fontsize=9):
@@ -608,7 +607,7 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 error_msg,
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
             # Show a popup with a hint to the log location
@@ -669,7 +668,7 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Error displaying response: {str(e)}",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -679,7 +678,7 @@ class GeoAgent:
         self.iface.messageBar().pushMessage(
             "GeoAgent",
             f"LLM Error: {error_msg}",
-            level=Qgis.Critical,
+            level=Qgis.MessageLevel.Critical,
             duration=QGIS_MESSAGE_DURATION,
         )
         if DEBUG_MODE:
@@ -837,7 +836,7 @@ class GeoAgent:
                         self.iface.messageBar().pushMessage(
                             "GeoAgent",
                             f"Pulling model '{model_str}'. This may take a few minutes...",
-                            level=Qgis.Info,
+                            level=Qgis.MessageLevel.Info,
                             duration=QGIS_MESSAGE_DURATION,
                         )
                         if not ollama_pull_model(base_url, model_str):
@@ -847,7 +846,7 @@ class GeoAgent:
                         self.iface.messageBar().pushMessage(
                             "GeoAgent",
                             f"Successfully pulled '{model_str}'. Initializing...",
-                            level=Qgis.Success,
+                            level=Qgis.MessageLevel.Success,
                             duration=QGIS_MESSAGE_DURATION,
                         )
                     else:
@@ -869,7 +868,7 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Connected to {model_name} ({mode_display} mode)",
-                level=Qgis.Success,
+                level=Qgis.MessageLevel.Success,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -885,7 +884,7 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 error_msg,
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
             self.showMessage(
@@ -979,7 +978,7 @@ class GeoAgent:
                 self.iface.messageBar().pushMessage(
                     "GeoAgent",
                     "Chat is empty. Nothing to export.",
-                    level=Qgis.Info,
+                    level=Qgis.MessageLevel.Info,
                     duration=QGIS_MESSAGE_DURATION,
                 )
                 return
@@ -998,14 +997,14 @@ class GeoAgent:
                 self.iface.messageBar().pushMessage(
                     "GeoAgent",
                     f"Chat exported to {file_path}",
-                    level=Qgis.Success,
+                    level=Qgis.MessageLevel.Success,
                     duration=QGIS_MESSAGE_DURATION,
                 )
         except Exception as e:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Failed to export chat: {str(e)}",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -1022,14 +1021,14 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 "Chat cleared.",
-                level=Qgis.Info,
+                level=Qgis.MessageLevel.Info,
                 duration=QGIS_MESSAGE_DURATION,
             )
         except Exception as e:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Failed to clear chat: {str(e)}",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -1103,7 +1102,7 @@ class GeoAgent:
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Could not open the model: {str(e)}",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
 
@@ -1134,13 +1133,13 @@ class GeoAgent:
             if in_toolbox:
                 message += " (Processing Toolbox > Models > GeoAgent)"
             self.iface.messageBar().pushMessage(
-                "GeoAgent", message, level=Qgis.Success, duration=QGIS_MESSAGE_DURATION
+                "GeoAgent", message, level=Qgis.MessageLevel.Success, duration=QGIS_MESSAGE_DURATION
             )
         except Exception as e:
             self._log_error("save_model_file", e)
             self.iface.messageBar().pushMessage(
                 "GeoAgent",
                 f"Could not save the model: {str(e)}",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )

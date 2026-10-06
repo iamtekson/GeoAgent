@@ -141,7 +141,7 @@ def list_qgis_layers(include_invisible: bool = True) -> str:
                 continue
 
             # Get layer type
-            if layer.type() == QgsMapLayer.VectorLayer:
+            if layer.type() == QgsMapLayer.LayerType.VectorLayer:
                 layer_type = "Vector"
                 geometry_type = (
                     layer.geometryType().name
@@ -150,7 +150,7 @@ def list_qgis_layers(include_invisible: bool = True) -> str:
                 )
                 feature_count = layer.featureCount()
                 extra_info = f"Geometry: {geometry_type}, Features: {feature_count}"
-            elif layer.type() == QgsMapLayer.RasterLayer:
+            elif layer.type() == QgsMapLayer.LayerType.RasterLayer:
                 layer_type = "Raster"
                 width = layer.width()
                 height = layer.height()
@@ -249,7 +249,7 @@ def get_layer_columns(layer_name: str) -> str:
             return f"**Error:** Layer **{layer_name}** not found. Available layers: {', '.join(available_layers)}"
 
         # Check if it's a vector layer
-        if layer.type() != QgsMapLayer.VectorLayer:
+        if layer.type() != QgsMapLayer.LayerType.VectorLayer:
             _logger.error(f"Layer '{matched_name}' is not a vector layer")
             return f"**Error:** **{matched_name}** is not a vector layer. Column information is only available for vector layers."
 

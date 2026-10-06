@@ -29,6 +29,13 @@ See [Architecture](architecture.md) for how the code is organized.
   ```
 
   Avoid `except Exception: pass`: catch the specific error you expect and handle or log it. If a finding is reviewed and safe, mark the line with `# nosec <test id>` and a comment explaining why.
+- Write Qt and QGIS enum values in their scoped form (`Qgis.MessageLevel.Warning`, not `Qgis.Warning`), which works on both QGIS 3 and QGIS 4. The QGIS plugin repository checks this on upload with QGIS's [`pyqt5_to_pyqt6.py`](https://github.com/qgis/QGIS/blob/master/scripts/pyqt5_to_pyqt6/pyqt5_to_pyqt6.py) script. To run the same check locally, use QGIS 4's Python, after installing the script's one dependency with `python -m pip install tokenize-rt`:
+
+  ```bash
+  python pyqt5_to_pyqt6.py --dry_run .
+  ```
+
+  It should report no "Enum error" lines. Without `--dry_run` it fixes them in place, keeping QGIS 3 compatibility.
 - Update the documentation in `docs/` if users will notice the change.
 
 ## Documentation
