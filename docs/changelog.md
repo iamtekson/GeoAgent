@@ -2,10 +2,9 @@
 
 ## Unreleased
 
-
-
 ## 0.6.0
 
+- **Fixed ([#62](https://github.com/iamtekson/GeoAgent/issues/62)):** on macOS and Linux, every tool that touches the project (listing layers, zooming, selecting, ...) reported `Thread <id> result not found in runner` in the chat, even though it had worked. Tool results now always reach the assistant, on every platform and QGIS version.
 - **Model export:** each processing result in the chat ends with *Open in Model Designer* and *Save as .model3* links. The run becomes a QGIS processing model, with your layers as inputs and its steps wired together.
 - **New setting, *After a processing run*:** open each run in the Model Designer, or ask to save it, automatically.
 - **Token usage:** the log ends every request with the tokens it used, plus a session total.

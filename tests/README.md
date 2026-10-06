@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 69 tests in 10.1s
+Ran 76 tests in 10.3s
 
 OK
 ```
@@ -103,6 +103,19 @@ cd tests
 | `test_default_models_folder_exists` | the default save folder exists |
 
 `ModelExportEdgeCasesTest` checks that an empty run is an error, that failed and non-processing tasks are skipped, and that a list of input layers becomes one multi-layer input.
+
+### `test_main_thread.py`: running tools on the main thread (`utils/canvas_refresh.py`)
+
+Tools that touch the QGIS project run on the main thread while the LLM works in a background thread.
+
+| Test | Checks that |
+| --- | --- |
+| `test_tool_result_reaches_worker_with_macos_thread_ids` | a real tool's result reaches the worker even with macOS/Linux-sized thread ids ([issue #62](https://github.com/iamtekson/GeoAgent/issues/62)) |
+| `test_function_runs_on_the_main_thread` | the function really runs on the main thread |
+| `test_exceptions_reach_the_caller` | a tool's error is raised in the calling thread, with its type and message |
+| `test_none_result_is_returned` / `test_arguments_are_passed` | `None` results and arguments come through unchanged |
+| `test_call_from_main_thread_runs_directly` | a call made on the main thread runs directly instead of deadlocking |
+| `test_without_runner_is_an_error` | calling before the plugin set up its runner is a clear error |
 
 ### `test_usage.py`: token usage per request (`llm/usage.py`)
 
