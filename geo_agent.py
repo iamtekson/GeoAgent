@@ -128,22 +128,20 @@ class GeoAgent:
         self._session_tokens = 0
 
     def _log_error(self, context: str, exc: Exception):
+        details = traceback.format_exc()
+        # Write to plugin error log file (the plugin folder may be read-only;
+        # the error still reaches the QGIS log panel below)
         try:
-            details = traceback.format_exc()
-            # Write to plugin error log file
             with open(self._error_log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{context}] {str(exc)}\n")
                 f.write(details + "\n\n")
-            # Also send to QGIS log panel
-            QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
-            # Mirror to UI logger if available
-            try:
-                if hasattr(self, "_ui_logger"):
-                    self._ui_logger.error(f"[{context}] {exc}\n{details}")
-            except Exception:
-                pass
-        except Exception:
-            pass
+        except OSError as e:
+            details += f"\n(Could not write {self._error_log_path}: {e})"
+        # Also send to QGIS log panel
+        QgsMessageLog.logMessage(details, "GeoAgent", level=Qgis.Critical)
+        # Mirror to UI logger if available
+        if hasattr(self, "_ui_logger"):
+            self._ui_logger.error(f"[{context}] {exc}\n{details}")
 
     def _setup_ui_logging(self):
         """Wire all logging sources to the GeoAgent Logs tab."""
@@ -202,40 +200,31 @@ class GeoAgent:
         # Connect QGIS message log stream
         self._connect_qgis_message_log()
 
-        try:
-            self._plugin_logger.info("GeoAgent UI logging initialized")
-        except Exception:
-            pass
+        self._plugin_logger.info("GeoAgent UI logging initialized")
 
     def _connect_qgis_message_log(self):
         """Forward QgsMessageLog messages to the UI logger."""
-        try:
-            if getattr(self, "_message_log_connected", False):
-                return
-            msg_log = QgsApplication.messageLog()
-            if msg_log is None:
-                return
-            msg_log.messageReceived.connect(self._on_qgis_message)
-            self._message_log_connected = True
-            self._qgis_msg_log = msg_log
-        except Exception:
-            pass
+        if getattr(self, "_message_log_connected", False):
+            return
+        msg_log = QgsApplication.messageLog()
+        if msg_log is None:
+            return
+        msg_log.messageReceived.connect(self._on_qgis_message)
+        self._message_log_connected = True
+        self._qgis_msg_log = msg_log
 
     def _on_qgis_message(self, message, tag, level):
         """Slot to mirror QGIS messages into the UI log."""
-        try:
-            level_map = {
-                getattr(Qgis, "Info", 0): logging.INFO,
-                getattr(Qgis, "Success", 0): logging.INFO,
-                getattr(Qgis, "Warning", 0): logging.WARNING,
-                getattr(Qgis, "Critical", 0): logging.ERROR,
-                getattr(Qgis, "Fatal", 0): logging.CRITICAL,
-            }
-            log_level = level_map.get(level, logging.INFO)
-            if hasattr(self, "_ui_logger"):
-                self._ui_logger.log(log_level, f"[{tag}] {message}")
-        except Exception:
-            pass
+        level_map = {
+            getattr(Qgis, "Info", 0): logging.INFO,
+            getattr(Qgis, "Success", 0): logging.INFO,
+            getattr(Qgis, "Warning", 0): logging.WARNING,
+            getattr(Qgis, "Critical", 0): logging.ERROR,
+            getattr(Qgis, "Fatal", 0): logging.CRITICAL,
+        }
+        log_level = level_map.get(level, logging.INFO)
+        if hasattr(self, "_ui_logger"):
+            self._ui_logger.log(log_level, f"[{tag}] {message}")
 
     def _notify_if_dependencies_missing(self):
         """Show a non-blocking hint if required packages aren't installed yet.
@@ -244,17 +233,14 @@ class GeoAgent:
         Installation is a deliberate action via the Settings tab's
         "Check / Install Dependencies" button.
         """
-        try:
-            if get_missing_packages():
-                self.iface.messageBar().pushMessage(
-                    "GeoAgent",
-                    "Some required packages aren't installed yet. "
-                    "Go to the Settings tab and click 'Check / Install Dependencies'.",
-                    level=Qgis.Warning,
-                    duration=QGIS_MESSAGE_DURATION,
-                )
-        except Exception:
-            pass
+        if get_missing_packages():
+            self.iface.messageBar().pushMessage(
+                "GeoAgent",
+                "Some required packages aren't installed yet. "
+                "Go to the Settings tab and click 'Check / Install Dependencies'.",
+                level=Qgis.Warning,
+                duration=QGIS_MESSAGE_DURATION,
+            )
 
     def _on_install_deps_clicked(self):
         """Handle the Settings tab's "Check / Install Dependencies" button."""
@@ -429,13 +415,11 @@ class GeoAgent:
         if hasattr(self, "dlg"):
             self.iface.removeDockWidget(self.dlg)
 
-        # Disconnect QGIS message log signal on unload
+        # Disconnect QGIS message log signal on unload (the flag is only set
+        # once the connection is made, and cleared so it happens only once)
         if getattr(self, "_message_log_connected", False):
-            try:
-                if hasattr(self, "_qgis_msg_log"):
-                    self._qgis_msg_log.messageReceived.disconnect(self._on_qgis_message)
-            except Exception:
-                pass
+            self._qgis_msg_log.messageReceived.disconnect(self._on_qgis_message)
+            self._message_log_connected = False
 
     def run(self):
         """Run method that performs all the real work"""
@@ -468,73 +452,27 @@ class GeoAgent:
             self.first_start = False
             self.dlg = GeoAgentDialog(self.iface.mainWindow())
             # Prefer bottom dock area and allow only bottom
-            try:
-                self.dlg.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-            except Exception:
-                pass
+            self.dlg.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
             self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dlg)
             # Encourage larger content footprint in bottom area
-            try:
-                # Increase minimum height on dock and its main widget if accessible
-                self.dlg.setMinimumHeight(380)
-                if hasattr(self.dlg, "widget") and callable(
-                    getattr(self.dlg, "widget")
-                ):
-                    w = self.dlg.widget()
-                    if w is not None:
-                        w.setMinimumHeight(380)
-                        sp = w.sizePolicy()
-                        sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
-                        sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
-                        w.setSizePolicy(sp)
-            except Exception:
-                pass
-            # Wire up UI actions
-            if hasattr(self.dlg, "send_chat"):
-                try:
-                    self.dlg.send_chat.clicked.disconnect()
-                except Exception:
-                    pass
-                self.dlg.send_chat.clicked.connect(self.send_message)
-            if hasattr(self.dlg, "question") and hasattr(
-                self.dlg.question, "returnPressed"
-            ):
-                try:
-                    self.dlg.question.returnPressed.disconnect()
-                except Exception:
-                    pass
-                self.dlg.question.returnPressed.connect(self.send_message)
-            # Wire up export and clear buttons
-            if hasattr(self.dlg, "export_ans"):
-                try:
-                    self.dlg.export_ans.clicked.disconnect()
-                except Exception:
-                    pass
-                self.dlg.export_ans.clicked.connect(self.export_chat)
-            if hasattr(self.dlg, "clear_ans"):
-                try:
-                    self.dlg.clear_ans.clicked.disconnect()
-                except Exception:
-                    pass
-                self.dlg.clear_ans.clicked.connect(self.clear_chat)
+            self.dlg.setMinimumHeight(380)
+            w = self.dlg.widget()
+            if w is not None:
+                w.setMinimumHeight(380)
+                sp = w.sizePolicy()
+                sp.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+                sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+                w.setSizePolicy(sp)
+            # Wire up UI actions (the dialog is new, so nothing is connected yet)
+            self.dlg.send_chat.clicked.connect(self.send_message)
+            self.dlg.question.returnPressed.connect(self.send_message)
+            self.dlg.export_ans.clicked.connect(self.export_chat)
+            self.dlg.clear_ans.clicked.connect(self.clear_chat)
             # Links in the chat: model actions under processing results, and
             # web links (opened in the browser instead of inside the chat)
-            if hasattr(self.dlg, "llm_response"):
-                self.dlg.llm_response.setOpenLinks(False)
-                try:
-                    self.dlg.llm_response.anchorClicked.disconnect()
-                except Exception:
-                    pass
-                self.dlg.llm_response.anchorClicked.connect(self._on_chat_link_clicked)
-            # Wire up dependency install button
-            if hasattr(self.dlg, "install_deps_button"):
-                try:
-                    self.dlg.install_deps_button.clicked.disconnect()
-                except Exception:
-                    pass
-                self.dlg.install_deps_button.clicked.connect(
-                    self._on_install_deps_clicked
-                )
+            self.dlg.llm_response.setOpenLinks(False)
+            self.dlg.llm_response.anchorClicked.connect(self._on_chat_link_clicked)
+            self.dlg.install_deps_button.clicked.connect(self._on_install_deps_clicked)
 
             # Setup unified UI logging once the dialog exists
             try:
@@ -674,16 +612,13 @@ class GeoAgent:
                 duration=QGIS_MESSAGE_DURATION,
             )
             # Show a popup with a hint to the log location
-            try:
-                if DEBUG_MODE:
-                    self.showMessage(
-                        "GeoAgent Error",
-                        f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
-                        "OK",
-                        "Warning",
-                    )
-            except Exception:
-                pass
+            if DEBUG_MODE:
+                self.showMessage(
+                    "GeoAgent Error",
+                    f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
+                    "OK",
+                    "Warning",
+                )
             # Re-enable buttons on error
             self.dlg.send_chat.setEnabled(True)
             self.dlg.send_chat.setText("Send")
@@ -747,16 +682,13 @@ class GeoAgent:
             level=Qgis.Critical,
             duration=QGIS_MESSAGE_DURATION,
         )
-        try:
-            if DEBUG_MODE:
-                self.showMessage(
-                    "GeoAgent Error",
-                    f"LLM Error: {error_msg}\n\nSee full log at:\n{self._error_log_path}",
-                    "OK",
-                    "Warning",
-                )
-        except Exception:
-            pass
+        if DEBUG_MODE:
+            self.showMessage(
+                "GeoAgent Error",
+                f"LLM Error: {error_msg}\n\nSee full log at:\n{self._error_log_path}",
+                "OK",
+                "Warning",
+            )
         # Re-enable buttons on error
         self.dlg.send_chat.setEnabled(True)
         self.dlg.send_chat.setText("Send")
@@ -779,11 +711,8 @@ class GeoAgent:
         """Log the tokens the request that just ended used (Logs tab + file)."""
         if usage is None:
             return
-        try:
-            self._session_tokens += usage.total_tokens
-            _chat_logger.info(usage.summary(session_total=self._session_tokens))
-        except Exception:
-            pass
+        self._session_tokens += usage.total_tokens
+        _chat_logger.info(usage.summary(session_total=self._session_tokens))
 
     def _agent_settings(self, mode: str) -> tuple:
         """Every setting the LLM client and graph are built from.
@@ -959,15 +888,12 @@ class GeoAgent:
                 level=Qgis.Critical,
                 duration=QGIS_MESSAGE_DURATION,
             )
-            try:
-                self.showMessage(
-                    "Initialization Error",
-                    f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
-                    "OK",
-                    "Warning",
-                )
-            except Exception:
-                pass
+            self.showMessage(
+                "Initialization Error",
+                f"{error_msg}\n\nSee full log at:\n{self._error_log_path}",
+                "OK",
+                "Warning",
+            )
             self.llm = None
             self.app = None
             raise
@@ -1000,10 +926,7 @@ class GeoAgent:
         self.dlg.llm_response.append(f"\n<b>User:</b> {message}")
         # Show a processing indicator immediately
         self.dlg.llm_response.append("\n<i>Agent is processing…</i>")
-        try:
-            self.dlg.llm_response.repaint()
-        except Exception:
-            pass
+        self.dlg.llm_response.repaint()
         self._scroll_to_bottom()
 
     def _display_ai_response(self, response: str, footer_html: str = "") -> None:

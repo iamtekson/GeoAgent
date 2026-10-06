@@ -26,8 +26,10 @@ from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSize, QSettings
 
-from ..logger.logger import UILogHandler
+from ..logger.logger import UILogHandler, get_logger
 from ..config.settings import MAX_LOG_LINES, SUPPORTED_MODELS
+
+_logger = get_logger("ui")
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(
@@ -90,81 +92,52 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _set_defaults(self):
         """Set default values for dialog controls."""
-        try:
-            # Set temperature to 0.8
-            if hasattr(self, "temperature"):
-                self.temperature.setValue(0.8)
-        except Exception:
-            pass
+        if hasattr(self, "temperature"):
+            self.temperature.setValue(0.8)
+        if hasattr(self, "max_tokens"):
+            self.max_tokens.setValue(5000)
+        if hasattr(self, "ollama_model_name"):
+            self.ollama_model_name.setText("llama3.2:3b")
+        if hasattr(self, "ollama_base_url"):
+            self.ollama_base_url.setText("http://localhost:11434")
+        # Getting-started text in the chat
+        if hasattr(self, "llm_response"):
+            self.llm_response.setPlainText(
+                "Welcome to GeoAgent!\n\n"
+                "Select your LLM provider and configure settings on the left.\n"
+                "If your provider is Ollama, ensure your Ollama server is running.\n\n"
+                "   - Download Ollama: [https://ollama.com/download](https://ollama.com/download)\n"
+                "   - Make sure Ollama is running by executing `ollama serve` in your terminal.\n\n"
+                "Then choose a mode (default: General):\n"
+                "   - Choose 'General' mode for conversational GIS assistance.\n"
+                "   - Choose 'Processing' mode to execute geoprocessing tasks.\n\n"
+                "Type your message above and click 'Send' to get started."
+            )
 
     def _apply_info_icons(self):
         """apply native information icons to tooltip buttons."""
-        try:
-            info_icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation)
-            for btn_name in (
-                "info_provider",
-                "info_temperature",
-                "info_maximum_token",
-                "info_model_name",
-                "info_api_key",
-                "info_ollama_base_url",
-                "info_ollama_model_name",
-                "info_after_run",
-            ):
-                btn = getattr(self, btn_name, None)
-                if btn:
-                    btn.setIcon(info_icon)
-                    btn.setIconSize(QSize(14, 14))
-                    btn.setText("")
-                    btn.setAutoRaise(True)
-        except Exception:
-            pass
-
-        try:
-            # Set max tokens to 5000
-            if hasattr(self, "max_tokens"):
-                self.max_tokens.setValue(5000)
-        except Exception:
-            pass
-
-        try:
-            # Set Ollama model name to llama3.2:3b
-            if hasattr(self, "ollama_model_name"):
-                self.ollama_model_name.setText("llama3.2:3b")
-        except Exception:
-            pass
-
-        try:
-            # Set Ollama base URL
-            if hasattr(self, "ollama_base_url"):
-                self.ollama_base_url.setText("http://localhost:11434")
-        except Exception:
-            pass
-
-        try:
-            # set llm_response text for getting started info
-            if hasattr(self, "llm_response"):
-                self.llm_response.setPlainText(
-                    "Welcome to GeoAgent!\n\n"
-                    "Select your LLM provider and configure settings on the left.\n"
-                    "If your provider is Ollama, ensure your Ollama server is running.\n\n"
-                    "   - Download Ollama: [https://ollama.com/download](https://ollama.com/download)\n"
-                    "   - Make sure Ollama is running by executing `ollama serve` in your terminal.\n\n"
-                    "Then choose a mode (default: General):\n"
-                    "   - Choose 'General' mode for conversational GIS assistance.\n"
-                    "   - Choose 'Processing' mode to execute geoprocessing tasks.\n\n"
-                    "Type your message above and click 'Send' to get started."
-                )
-        except Exception:
-            pass
+        info_icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation)
+        for btn_name in (
+            "info_provider",
+            "info_temperature",
+            "info_maximum_token",
+            "info_model_name",
+            "info_api_key",
+            "info_ollama_base_url",
+            "info_ollama_model_name",
+            "info_after_run",
+        ):
+            btn = getattr(self, btn_name, None)
+            if btn:
+                btn.setIcon(info_icon)
+                btn.setIconSize(QSize(14, 14))
+                btn.setText("")
+                btn.setAutoRaise(True)
 
     def get_current_mode(self) -> str:
         """Get the currently selected mode (general or processing)."""
-        try:
-            if hasattr(self, "processing_mode") and self.processing_mode.isChecked():
-                return "processing"
-        except Exception:
-            pass
+        if hasattr(self, "processing_mode") and self.processing_mode.isChecked():
+            return "processing"
         return "general"
 
     def get_after_run_action(self) -> str:
@@ -210,39 +183,26 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
         else:
             self.stackedWidget.setCurrentIndex(0)
             # Pre-fill the model name field with this provider's default model
-            try:
-                default_model = SUPPORTED_MODELS.get(selection, {}).get(
-                    "default_model", ""
-                )
-                if default_model and hasattr(self, "model_name"):
-                    self.model_name.setText(default_model)
-            except Exception:
-                pass
+            default_model = SUPPORTED_MODELS.get(selection, {}).get("default_model", "")
+            if default_model and hasattr(self, "model_name"):
+                self.model_name.setText(default_model)
             # Restore this provider's saved API key, if any (each provider
             # keeps its own key so switching providers doesn't lose the others).
-            try:
-                if hasattr(self, "custom_apikey"):
-                    settings = QSettings()
-                    saved_key = settings.value(
-                        f"{SETTINGS_PREFIX}api_key_{selection}", "", type=str
-                    )
-                    self.custom_apikey.setText(saved_key)
-            except Exception:
-                pass
+            if hasattr(self, "custom_apikey"):
+                saved_key = QSettings().value(
+                    f"{SETTINGS_PREFIX}api_key_{selection}", "", type=str
+                )
+                self.custom_apikey.setText(saved_key)
 
         # refresh tooltips that depend on provider selection
         self._update_model_name_tooltip()
 
     def _update_model_name_tooltip(self):
         """Set model-name tooltip based on current provider selection."""
-        try:
-            btn = getattr(self, "info_model_name", None)
-            if not btn:
-                return
+        btn = getattr(self, "info_model_name", None)
+        if btn:
             # click on the info button shows detailed info
             btn.setToolTip("Click for more information.")
-        except Exception:
-            pass
 
     def _get_model_name_help_text(self) -> str:
         """Return the model-name help text based on current provider selection."""
@@ -272,12 +232,9 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _on_model_name_info_clicked(self):
         """show a message box with more information."""
-        try:
-            message = self._get_model_name_help_text()
-            if message:
-                QtWidgets.QMessageBox.information(self, "Information", message)
-        except Exception:
-            pass
+        message = self._get_model_name_help_text()
+        if message:
+            QtWidgets.QMessageBox.information(self, "Information", message)
 
     def _load_persisted_settings(self):
         """Restore provider, model, temperature, max tokens, Ollama fields,
@@ -327,8 +284,10 @@ class GeoAgentDialog(QtWidgets.QDockWidget, FORM_CLASS):
             after_run = settings.value(f"{SETTINGS_PREFIX}after_run_action", "", type=str)
             if after_run in AFTER_RUN_ACTIONS and hasattr(self, "after_run_action"):
                 self.after_run_action.setCurrentIndex(AFTER_RUN_ACTIONS.index(after_run))
-        except Exception:
-            pass
+        except (TypeError, ValueError) as e:
+            # A corrupted saved value must not stop the panel from opening;
+            # the defaults stay in place for whatever wasn't restored
+            _logger.warning(f"Could not restore saved settings: {e}")
 
     def _save_settings(self):
         """Persist provider, model, temperature, max tokens, Ollama fields,

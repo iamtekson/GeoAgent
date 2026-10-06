@@ -52,18 +52,16 @@ MAX_SAME_ALGORITHM_FAILURES = 1
 def _available_layers_text() -> str:
     """Compact one-line-per-layer listing of the current QGIS project."""
     try:
-        from qgis.core import QgsProject, QgsMapLayer
+        from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer, QgsWkbTypes
 
         lines = []
         for lyr in QgsProject.instance().mapLayers().values():
-            if lyr.type() == QgsMapLayer.RasterLayer:
+            if isinstance(lyr, QgsRasterLayer):
                 kind = "raster"
-            else:
-                kind = "vector"
-                try:
-                    kind += f", {lyr.geometryType().name}"
-                except Exception:
-                    pass
+            elif isinstance(lyr, QgsVectorLayer):
+                kind = f"vector, {QgsWkbTypes.geometryDisplayString(lyr.geometryType())}"
+            else:  # mesh, point cloud, vector tile, ... layers
+                kind = type(lyr).__name__
             lines.append(f"- {lyr.name()} ({kind})")
         return "\n".join(lines) if lines else "No layers loaded."
     except Exception:

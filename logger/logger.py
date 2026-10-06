@@ -133,8 +133,10 @@ class UILogHandler(logging.Handler):
             self.text_browser.verticalScrollBar().setValue(
                 self.text_browser.verticalScrollBar().maximum()
             )
-        except Exception:
-            pass
+        except RuntimeError:
+            # The Logs tab was deleted (plugin unloaded or reloaded) while
+            # this handler is still attached to a logger: stop writing to it
+            self.text_browser = None
     
     def _extract_log_level(self, msg: str) -> str:
         """
@@ -159,27 +161,24 @@ class UILogHandler(logging.Handler):
         """
         if self.text_browser is None:
             return
-        
-        try:
-            # Calculate lines to remove (remove 10% of max_lines at a time)
-            lines_to_remove = max(1, self.max_lines // 10)
-            
-            # Get text cursor
-            cursor = self.text_browser.textCursor()
-            
-            # Move to start
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
 
-            # Select and delete lines
-            for _ in range(lines_to_remove):
-                cursor.select(QTextCursor.SelectionType.LineUnderCursor)
-                cursor.removeSelectedText()
-                cursor.deleteChar()  # Remove the newline
-            
-            # Update line count
-            self.line_count = self.text_browser.document().lineCount()
-        except Exception:
-            pass
+        # Calculate lines to remove (remove 10% of max_lines at a time)
+        lines_to_remove = max(1, self.max_lines // 10)
+
+        # Get text cursor
+        cursor = self.text_browser.textCursor()
+
+        # Move to start
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+
+        # Select and delete lines
+        for _ in range(lines_to_remove):
+            cursor.select(QTextCursor.SelectionType.LineUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deleteChar()  # Remove the newline
+
+        # Update line count
+        self.line_count = self.text_browser.document().lineCount()
 
 def _get_log_file_path() -> str:
     base = QgsApplication.qgisSettingsDirPath()
