@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 64 tests in 10.0s
+Ran 69 tests in 10.1s
 
 OK
 ```
@@ -82,6 +82,7 @@ cd tests
 | `…test_wrong_algorithm_reselects` | a "wrong algorithm" failure picks another |
 | `…test_failed_analysis_falls_back_to_reselection` | if error analysis itself fails, behaviour is as before (re-select) |
 | `…test_same_algorithm_retried_only_once` | a second failure with the same algorithm excludes it |
+| `LayerListingTest.test_every_layer_kind_is_listed` | the layer list the LLM sees describes vector (with geometry), raster, geometry-less and other layer kinds |
 | `CheckpointTest.test_steps_survive_the_checkpointer` | executed steps can be read back from the saved conversation state |
 
 ### `test_model_export.py`: model export (`utils/model_export.py`)
@@ -138,6 +139,10 @@ These use the real `GeoAgent` class, dialog, and background worker thread, with 
 | `test_15_first_message_builds_agent_once` | the first message builds the LLM client and graph once, not twice |
 | `test_16_any_changed_setting_rebuilds_agent` | changing max tokens, model name, API key or an Ollama setting applies to the next message; unchanged settings don't rebuild |
 | `test_17_initialize_agent_builds_both_modes` | the real provider setup builds both modes (skipped without `langchain-openai`) |
+| `test_18_error_log_falls_back_when_file_is_unwritable` | if the error-log file can't be written, the error still reaches the QGIS log |
+| `test_19_corrupted_saved_setting_does_not_block_the_panel` | a corrupted saved value is logged and the default kept; the panel still opens |
+| `test_99_unload_twice_is_safe` | unloading the plugin twice doesn't fail |
+| `UILogHandlerTest.test_deleted_logs_tab_is_dropped_not_crashed_on` | after the Logs tab is deleted (plugin unloaded), logging carries on without errors |
 
 ## How it works
 

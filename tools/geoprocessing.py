@@ -257,42 +257,22 @@ def get_algorithm_parameters(algorithm: str) -> Dict[str, Any]:
                 # QGIS algorithm dialog; the gather step keeps them at default.
                 "advanced": _param_flag(p, "FlagAdvanced"),
                 "hidden": _param_flag(p, "FlagHidden"),
+                "default": p.defaultValue(),
             }
-            # Default value if available
-            try:
-                item["default"] = p.defaultValue()
-            except Exception:
-                pass
-
-            # Enumerated options
-            try:
-                if isinstance(p, QgsProcessingParameterEnum):
-                    item["options"] = list(p.options())
-                    try:
-                        item["allowMultiple"] = bool(
-                            getattr(p, "allowMultiple", lambda: False)()
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
+            if isinstance(p, QgsProcessingParameterEnum):
+                item["options"] = list(p.options())
+                item["allowMultiple"] = bool(p.allowMultiple())
             params.append(item)
 
         # Outputs
-        outputs: List[Dict[str, Any]] = []
-        try:
-            for o in alg.destinationParameterDefinitions():
-                outputs.append(
-                    {
-                        "name": o.name(),
-                        "description": o.description(),
-                        "type": _param_type_name(o),
-                    }
-                )
-        except Exception:
-            # destinationParameterDefinitions may not exist in some versions
-            pass
+        outputs: List[Dict[str, Any]] = [
+            {
+                "name": o.name(),
+                "description": o.description(),
+                "type": _param_type_name(o),
+            }
+            for o in alg.destinationParameterDefinitions()
+        ]
 
         return {
             "id": alg.id(),

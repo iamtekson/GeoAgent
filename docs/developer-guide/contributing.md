@@ -22,6 +22,13 @@ See [Architecture](architecture.md) for how the code is organized.
 
 - Run the [tests](testing.md); they take about 15 seconds and need no API key.
 - Add tests for new behaviour. The scripted LLM in `tests/fake_llm.py` makes most flows testable offline.
+- Run the [Bandit](https://bandit.readthedocs.io/) security scan, which the QGIS plugin repository also runs on uploads. It should report no issues:
+
+  ```bash
+  uvx bandit -r . -x ./tests,./docs,./paper,./_extra
+  ```
+
+  Avoid `except Exception: pass`: catch the specific error you expect and handle or log it. If a finding is reviewed and safe, mark the line with `# nosec <test id>` and a comment explaining why.
 - Update the documentation in `docs/` if users will notice the change.
 
 ## Documentation

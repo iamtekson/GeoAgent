@@ -10,9 +10,10 @@ from unittest import mock
 
 import _bootstrap
 from fake_llm import SUMMARY, USAGE, FakeLLM, decomposition, params, selection, task
-from qgis.PyQt.QtCore import QEventLoop, QTimer, QUrl
+from qgis.PyQt import sip
+from qgis.PyQt.QtCore import QEventLoop, QSettings, QTimer, QUrl
 from qgis.PyQt.QtGui import QDesktopServices
-from qgis.PyQt.QtWidgets import QFileDialog, QMainWindow
+from qgis.PyQt.QtWidgets import QFileDialog, QMainWindow, QTextBrowser
 
 import geo_agent.geo_agent as plugin_module
 from geo_agent.agents.graph import build_unified_graph
@@ -270,6 +271,40 @@ class PluginTest(unittest.TestCase):
             self.send("unchanged again")
             self.assertEqual(initialize.call_count, len(changes))
 
+    def test_18_error_log_falls_back_when_file_is_unwritable(self):
+        saved_path = self.plugin._error_log_path
+        # A folder in place of the log file: opening it for writing fails
+        self.plugin._error_log_path = tempfile.mkdtemp(prefix="geoagent-not-a-file-")
+        try:
+            with mock.patch.object(plugin_module, "QgsMessageLog") as message_log:
+                try:
+                    raise ValueError("boom")
+                except ValueError as e:
+                    self.plugin._log_error("test", e)  # must not raise
+        finally:
+            shutil.rmtree(self.plugin._error_log_path, ignore_errors=True)
+            self.plugin._error_log_path = saved_path
+        logged = message_log.logMessage.call_args.args[0]
+        self.assertIn("boom", logged)
+        self.assertIn("Could not write", logged)
+
+    def test_19_corrupted_saved_setting_does_not_block_the_panel(self):
+        settings = QSettings()
+        settings.setValue("GeoAgent/temperature", "not-a-number")
+        try:
+            with self.assertLogs("geo_agent.ui", level="WARNING") as logs:
+                dialog = GeoAgentDialog(None)
+            self.assertIn("Could not restore saved settings", logs.output[0])
+            self.assertAlmostEqual(dialog.temperature.value(), 0.8)  # default kept
+            dialog.deleteLater()
+        finally:
+            settings.remove("GeoAgent/temperature")
+
+    def test_99_unload_twice_is_safe(self):
+        # Runs last: tearDownClass unloads again
+        self.plugin.unload()
+        self.assertFalse(self.plugin._message_log_connected)
+
     @unittest.skipUnless(importlib.util.find_spec("langchain_openai"), "langchain_openai not installed")
     def test_17_initialize_agent_builds_both_modes(self):
         # Constructing the client makes no network call
@@ -279,6 +314,18 @@ class PluginTest(unittest.TestCase):
             self.plugin._initialize_agent("OpenAI", temperature=0.2, max_tokens=100, mode=mode)
             self.assertIsNotNone(self.plugin.app)
             self.assertTrue(self.plugin.thread_id.endswith(f":{mode}"))
+
+
+class UILogHandlerTest(unittest.TestCase):
+    def test_deleted_logs_tab_is_dropped_not_crashed_on(self):
+        browser = QTextBrowser()
+        handler = UILogHandler(text_browser=browser)
+        handler._append_to_browser("2026-01-01 [INFO] x: before")
+        self.assertIn("before", browser.toPlainText())
+        sip.delete(browser)  # e.g. the plugin was unloaded
+        handler._append_to_browser("2026-01-01 [INFO] x: after")  # must not raise
+        self.assertIsNone(handler.text_browser)
+        handler._append_to_browser("2026-01-01 [INFO] x: later")  # no-op now
 
 
 if __name__ == "__main__":

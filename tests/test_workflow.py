@@ -238,6 +238,24 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(llm.count("ErrorAnalysis"), 2)
 
 
+class LayerListingTest(unittest.TestCase):
+    def test_every_layer_kind_is_listed(self):
+        from qgis.core import QgsAnnotationLayer
+        from geo_agent.agents.geoprocessing_flow import _available_layers_text
+
+        _bootstrap.reset_project()
+        project = QgsProject.instance()
+        project.addMapLayer(QgsVectorLayer("None?field=a:integer", "table", "memory"))
+        project.addMapLayer(
+            QgsAnnotationLayer("notes", QgsAnnotationLayer.LayerOptions(project.transformContext()))
+        )
+        listing = _available_layers_text().splitlines()
+        self.assertIn("- rivers (vector, Line)", listing)
+        self.assertIn("- DEM (raster)", listing)
+        self.assertIn("- table (vector, No geometry)", listing)
+        self.assertIn("- notes (QgsAnnotationLayer)", listing)
+
+
 class CheckpointTest(unittest.TestCase):
     def test_steps_survive_the_checkpointer(self):
         _bootstrap.reset_project()

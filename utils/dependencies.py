@@ -10,7 +10,8 @@ plugin panel is opened.
 import importlib
 import os
 import re
-import subprocess
+# Needed to run pip for the Settings tab's "Check / Install Dependencies"
+import subprocess  # nosec B404
 import sys
 from typing import List
 
@@ -118,7 +119,9 @@ class DependencyInstallWorker(QThread):
                 self.progress.emit(
                     int((idx - 1) / total * 100), f"Installing {pkg}..."
                 )
-                result = subprocess.run(
+                # Fixed argument list (no shell); package names come from the
+                # plugin's own pyproject.toml, never from user input
+                result = subprocess.run(  # nosec B603
                     [py_exec, "-m", "pip", "install", "--upgrade", pkg],
                     capture_output=True,
                     text=True,
