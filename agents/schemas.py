@@ -39,6 +39,22 @@ class ParameterGathering(BaseModel):
         description="Dictionary of parameter names to values"
     )
     notes: str = Field(description="Brief explanation of inferred values", default="")
+    user_note: str = Field(
+        default="",
+        description=(
+            "Only when a layer, column or value you used differs from what the "
+            "user wrote (e.g. column 'dim' for 'diameter'): one sentence saying "
+            "so, for the user. Otherwise empty."
+        ),
+    )
+    clarification: str = Field(
+        default="",
+        description=(
+            "Only when the user's words could mean several columns, layers or "
+            "values and none clearly fits: the question to ask the user, with "
+            "the options. Otherwise empty."
+        ),
+    )
 
 
 class TaskDefinition(BaseModel):

@@ -11,8 +11,11 @@ from .io import (
 )
 from .commons import now_utc
 from .filters import (
-    select_by_attribute,
-    select_by_geometry,
+    select_by_expression,
+    select_by_location,
+    calculate,
+    zoom_to_selection,
+    clear_selection,
 )
 
 # Geoprocessing tools are driven by the processing workflow
@@ -40,7 +43,10 @@ TOOLS = {
         save_qgis_project,
         delete_existing_project,
         # Filtering & Selection
-        select_by_attribute,
-        select_by_geometry,
+        select_by_expression,
+        select_by_location,
+        calculate,
+        zoom_to_selection,
+        clear_selection,
     ]
 }

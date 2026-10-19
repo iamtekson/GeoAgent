@@ -88,7 +88,7 @@ class RequestUsageTest(unittest.TestCase):
             "RouteDecision": [dict(is_processing_task=True, reason="")],
             "AlgorithmSelection": [selection("native:extractbyattribute")],
             "ParameterGathering": [
-                params(INPUT="rivers", FIELD="no_such_field", OPERATOR=9),
+                params(INPUT="rivers", FIELD="cat", OPERATOR=6, VALUE="1"),  # fails when run
                 params(INPUT="rivers", FIELD="fid", OPERATOR=9),
             ],
             "ErrorAnalysis": [dict(diagnosis="field missing", failure_kind="bad_parameter")],

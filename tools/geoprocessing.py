@@ -6,6 +6,7 @@ Provides algorithm discovery (over the FULL processing registry, all providers),
 parameter inspection, and execution with results loaded into the QGIS project.
 """
 import html
+import math
 import os
 import re
 from typing import Optional, List, Dict, Any, Tuple
@@ -18,7 +19,7 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 
-from ..config.constants import RASTER_EXTENSIONS
+from ..utils.layer_loading import layers_from_source
 from ..utils.layer_matching import find_best_layer_match
 from ..logger.processing_logger import get_processing_logger
 
@@ -28,37 +29,6 @@ _logger = get_processing_logger()
 # Algorithm catalog (cached once per session; the registry rarely changes)
 # ─────────────────────────────────────────────────────────────────────────────
 _ALGORITHM_CATALOG: Optional[List[Dict[str, Any]]] = None
-
-_STOPWORDS = {
-    "the", "a", "an", "of", "to", "for", "with", "and", "or", "in", "on", "by",
-    "from", "layer", "layers", "using", "each", "all", "my", "this", "that",
-    "create", "make", "new", "map", "file", "data",
-}
-
-# Small bonus layer of common GIS phrasing -> algorithm vocabulary. NOT meant
-# to be exhaustive: the workflow passes LLM-generated `keywords` per task,
-# which is the generic mechanism; this map just gives frequent phrasings a
-# floor when no keywords are provided.
-_SYNONYMS = {
-    "merge": ["merge", "union", "dissolve"],
-    "combine": ["union", "merge", "dissolve"],
-    "join": ["join", "union"],
-    "clip": ["clip", "mask", "extract"],
-    "crop": ["clip", "mask"],
-    "cut": ["clip"],
-    "average": ["mean", "statistics", "zonal"],
-    "statistics": ["statistics", "stats", "zonal"],
-    "stats": ["statistics", "zonal"],
-    "reproject": ["reproject", "warp", "crs", "transform"],
-    "projection": ["reproject", "crs"],
-    "distance": ["distance", "buffer", "proximity"],
-    "simplify": ["simplify", "generalize", "smooth"],
-    "interpolate": ["interpolate", "idw", "tin"],
-    "slope": ["slope", "terrain"],
-    "elevation": ["dem", "terrain", "elevation"],
-    "centroid": ["centroid", "center"],
-}
-
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -116,39 +86,9 @@ def get_algorithm_catalog(refresh: bool = False) -> List[Dict[str, Any]]:
     return catalog
 
 
-def _query_tokens(query: str) -> List[str]:
-    """Tokenize a task description and expand with GIS synonyms."""
-    words = re.findall(r"[a-z]+", query.lower())
-    tokens = [w for w in words if w not in _STOPWORDS and len(w) > 2]
-    expanded = list(tokens)
-    for t in tokens:
-        expanded.extend(_SYNONYMS.get(t, []))
-    return list(dict.fromkeys(expanded))  # dedupe, keep order
-
-
-def _score_algorithm(tokens: List[str], entry: Dict[str, Any]) -> float:
-    """Cheap lexical relevance of one catalog entry against query tokens."""
-    name_words = set(re.findall(r"[a-z]+", entry["name"].lower()))
-    alg_id = entry["id"].lower()
-    tags = entry["tags"]
-    desc = entry["description"].lower()
-
-    score = 0.0
-    for t in tokens:
-        if t in name_words:
-            score += 3.0
-        elif any(t in w for w in name_words):
-            score += 1.5
-        if t in alg_id:
-            score += 1.5
-        if any(t == tag or t in tag for tag in tags):
-            score += 2.0
-        if desc and t in desc:
-            score += 0.5
-    # Slight preference for native algorithms on ties
-    if score > 0 and entry["provider"] == "native":
-        score += 0.5
-    return score
+def _words(text: str) -> List[str]:
+    """Lowercase words of *text*; pure numbers (values like "500") are left out."""
+    return [w for w in re.findall(r"\w+", text.lower()) if not w.isdigit()]
 
 
 @tool
@@ -161,10 +101,14 @@ def find_processing_algorithm(
     """
     Find processing algorithms matching a natural-language task description.
 
-    Scores EVERY registered algorithm (all providers) locally against the
-    query using name/id/tags/description, and returns the top candidates.
-    An empty 'matches' list means nothing scored — callers should fall back
-    to selecting from the full catalog.
+    Scores EVERY registered algorithm (all providers) against the words of
+    the query and keywords, and returns the top candidates. Each word counts
+    by how rare it is in the registry (inverse document frequency): "voronoi"
+    counts a lot, while words most algorithms mention ("the", "layer") count
+    for almost nothing, so no stopword list is needed. Words found in an
+    algorithm's name or id count double. Synonyms come from *keywords*, which
+    the LLM generates per task. An empty 'matches' list means nothing
+    scored: callers should fall back to selecting from the full catalog.
 
     Args:
         query: Natural language description, e.g., 'buffer layer by 50m'.
@@ -182,14 +126,25 @@ def find_processing_algorithm(
         if provider:
             catalog = [e for e in catalog if e["provider"].lower() == provider.lower()]
 
-        tokens = _query_tokens(query)
-        for kw in keywords or []:
-            for t in _query_tokens(str(kw)):
-                if t not in tokens:
-                    tokens.append(t)
+        texts = [
+            (
+                f"{e['id']} {e['name']}".lower(),
+                " ".join([e["id"], e["name"], *e["tags"], e["description"]]).lower(),
+            )
+            for e in catalog
+        ]
+        words = dict.fromkeys(_words(query) + [w for kw in keywords or [] for w in _words(str(kw))])
+        weights = {}
+        for word in words:
+            found_in = sum(1 for _, text in texts if word in text)
+            if found_in:
+                weights[word] = math.log(len(texts) / found_in)
 
-        scored = [(_score_algorithm(tokens, e), e) for e in catalog]
-        scored = [(s, e) for s, e in scored if s > 0]
+        scored = []
+        for entry, (name, text) in zip(catalog, texts):
+            score = sum(w * (2 if word in name else 1) for word, w in weights.items() if word in text)
+            if score > 0:
+                scored.append((score, entry))
         scored.sort(key=lambda item: item[0], reverse=True)
         matches = [e for _, e in scored[: max(1, limit)]]
 
@@ -485,13 +440,72 @@ def normalize_parameters(
     return params, notes
 
 
-def validate_parameters(algorithm: str, parameters: Dict[str, Any]) -> List[str]:
-    """Run QGIS's own parameter check (the same one processing.run() does).
+# ─────────────────────────────────────────────────────────────────────────────
+# Column names in field / expression parameters
+#
+# QGIS's own check doesn't look at column names: a wrong FIELD fails only
+# when the algorithm runs, and an expression naming a missing column runs
+# "successfully" and matches nothing. The pre-flight check verifies them
+# against the layer each parameter belongs to (its parent parameter) and
+# lists the real columns, so the LLM can pick the right one.
+# ─────────────────────────────────────────────────────────────────────────────
+def _parent_vector_layer(definition, parameters: Dict[str, Any], context):
+    """The vector layer a field/expression parameter refers to, if known."""
+    from qgis.core import QgsProcessingUtils, QgsVectorLayer
 
-    Returns a list of problems (empty when valid). The pass/fail decision is
-    exactly QGIS's checkParameterValues(), so nothing that would run is
-    rejected; the per-parameter lines just name every bad value at once.
-    If the check itself errors, returns [] and leaves it to execution.
+    parent = getattr(definition, "parentLayerParameterName", lambda: "")()
+    value = parameters.get(parent) if parent else None
+    if isinstance(value, QgsVectorLayer):
+        return value
+    if not isinstance(value, str) or not value:
+        return None
+    layer = QgsProcessingUtils.mapLayerFromString(value, context)
+    return layer if isinstance(layer, QgsVectorLayer) else None
+
+
+def _column_problems(alg, parameters: Dict[str, Any], context) -> List[str]:
+    """Columns named in field/expression parameters that their layer lacks."""
+    from qgis.core import QgsExpression, QgsExpressionContext, QgsExpressionContextUtils
+    from ..utils.layer_columns import describe_columns
+
+    problems = []
+    for definition in alg.parameterDefinitions():
+        name = definition.name()
+        value = parameters.get(name)
+        if definition.type() not in ("field", "expression") or value in (None, "", []):
+            continue
+        layer = _parent_vector_layer(definition, parameters, context)
+        if layer is None:
+            continue
+        columns = f"Columns of '{layer.name()}': {describe_columns(layer)}"
+        if definition.type() == "field":
+            names = value if isinstance(value, (list, tuple)) else str(value).split(";")
+            missing = [n for n in names if layer.fields().lookupField(str(n)) < 0]
+            if missing:
+                problems.append(f"{name}: no column {', '.join(map(repr, missing))}. {columns}")
+            continue
+        expression = QgsExpression(str(value))
+        if expression.hasParserError():
+            problems.append(f"{name}: invalid expression: {expression.parserErrorString()}")
+            continue
+        expression.prepare(
+            QgsExpressionContext(QgsExpressionContextUtils.globalProjectLayerScopes(layer))
+        )
+        if expression.hasEvalError():
+            problems.append(f"{name}: {expression.evalErrorString()}. {columns}")
+    return problems
+
+
+def validate_parameters(algorithm: str, parameters: Dict[str, Any]) -> List[str]:
+    """Run QGIS's own parameter check (the same one processing.run() does),
+    plus a check of the column names in field/expression parameters.
+
+    Returns a list of problems (empty when valid). Apart from column names
+    (which would fail or silently match nothing when run), the pass/fail
+    decision is exactly QGIS's checkParameterValues(), so nothing that would
+    run is rejected; the per-parameter lines just name every bad value at
+    once, with the valid options of option lists. If the check itself errors,
+    returns [] and leaves it to execution.
     """
     try:
         alg = QgsApplication.processingRegistry().algorithmById(algorithm)
@@ -500,16 +514,19 @@ def validate_parameters(algorithm: str, parameters: Dict[str, Any]) -> List[str]
         context = _processing_context()
         ok, message = alg.checkParameterValues(parameters, context)
         if ok:
-            return []
+            return _column_problems(alg, parameters, context)
         problems = [message] if message else []
         for definition in alg.parameterDefinitions():
             if definition.isDestination():
                 continue
             value = parameters.get(definition.name())
-            if not _acceptable(definition, value, context):
-                line = f"{definition.name()} ({definition.description()}): {value!r} is not a valid value"
-                if not any(definition.name() in p for p in problems):
-                    problems.append(line)
+            if _acceptable(definition, value, context):
+                continue
+            line = f"{definition.name()} ({definition.description()}): {value!r} is not a valid value"
+            if isinstance(definition, QgsProcessingParameterEnum):
+                problems.append(f"{line}; options: {list(definition.options())}")
+            elif not any(definition.name() in p for p in problems):
+                problems.append(line)
         return problems or ["QGIS rejected the parameter values"]
     except Exception as e:
         _logger.warning(f"Parameter validation skipped: {e}")
@@ -540,7 +557,7 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
     """
     try:
         import processing
-        from qgis.core import QgsProject, QgsMapLayer, QgsRasterLayer, QgsVectorLayer
+        from qgis.core import QgsProject, QgsMapLayer
 
         if "OUTPUT" not in parameters:
             parameters["OUTPUT"] = "TEMPORARY_OUTPUT"
@@ -567,21 +584,16 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                 output_layer_ids.append(value.id())
                 outputs[output_name] = value.id()
             elif isinstance(value, str) and value and value != "TEMPORARY_OUTPUT":
-                file_ext = os.path.splitext(value)[-1].lower()
-                if not file_ext and not os.path.exists(value):
+                path = value.split("|")[0]
+                if not os.path.splitext(path)[1] and not os.path.exists(path):
                     continue  # not a loadable path (plain string result)
-                layer_name = _unique_layer_name(base_name)
-                is_raster = file_ext in RASTER_EXTENSIONS
-                lyr = (
-                    QgsRasterLayer(value, layer_name)
-                    if is_raster
-                    else QgsVectorLayer(value, layer_name, "ogr")
-                )
-                if lyr and lyr.isValid():
+                # QGIS detects the format; reports and other files give no layer
+                for lyr in layers_from_source(value):
+                    lyr.setName(_unique_layer_name(base_name))
                     project.addMapLayer(lyr)
-                    output_layers.append(layer_name)
+                    output_layers.append(lyr.name())
                     output_layer_ids.append(lyr.id())
-                    outputs[output_name] = lyr.id()
+                    outputs.setdefault(output_name, lyr.id())
 
         return {
             "algorithm": algorithm,

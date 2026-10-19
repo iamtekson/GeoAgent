@@ -2,24 +2,20 @@
 """
 Fuzzy layer-name matching so tools can find the layer a user meant even when
 they don't type its exact QGIS layer name - different spacing, underscores,
-casing, filler words like "the"/"layer", or minor typos (e.g. "stream network
-of nepal" should still resolve to a layer literally named "stream_network_nepal").
+casing, extra words, or minor typos. "stream network of nepal" resolves to a
+layer named "stream_network_nepal", and "the rivers layer" to "rivers",
+because every word of the layer's name appears in the request.
 """
 import difflib
 import re
 from typing import Dict, List, Optional, Tuple
 
-_STOPWORDS = {"the", "a", "an", "of", "layer", "in", "for", "data", "dataset"}
 _MATCH_THRESHOLD = 0.6
 
 
 def _normalize(name: str) -> str:
-    """Lowercase, collapse separators to spaces, and drop filler words."""
-    name = name.lower()
-    name = re.sub(r"[_\-]+", " ", name)
-    name = re.sub(r"[^a-z0-9\s]", " ", name)
-    tokens = [t for t in name.split() if t not in _STOPWORDS]
-    return " ".join(tokens)
+    """Lowercase words, with separators and punctuation collapsed to spaces."""
+    return " ".join(re.sub(r"[\W_]+", " ", name.lower()).split())
 
 
 def find_best_layer_match(
@@ -28,9 +24,10 @@ def find_best_layer_match(
     """Return the entry in *layer_names* that best matches *query*.
 
     Tries, in order: an exact case-insensitive match, an exact match after
-    normalizing spacing/underscores/casing and dropping filler words, a
-    substring match, then fuzzy similarity ranking for partial names or
-    typos. Returns None if nothing clears *threshold*.
+    normalizing spacing/underscores/casing, names contained in the query (as
+    text, or every one of their words) or containing it, then fuzzy
+    similarity ranking for partial names or typos. Returns None if nothing
+    clears *threshold*.
     """
     if not layer_names:
         return None
@@ -50,11 +47,16 @@ def find_best_layer_match(
         if normalized == normalized_query:
             return name
 
+    query_words = set(normalized_query.split())
     substring_candidates = [
         name
         for name, normalized in normalized_names.items()
         if normalized
-        and (normalized_query in normalized or normalized in normalized_query)
+        and (
+            normalized_query in normalized
+            or normalized in normalized_query
+            or set(normalized.split()) <= query_words
+        )
     ]
     if len(substring_candidates) == 1:
         return substring_candidates[0]

@@ -12,6 +12,9 @@ from qgis.core import QgsProject, QgsVectorLayer
 from geo_agent.agents import workflow as workflow_module
 from geo_agent.agents.graph import build_unified_graph
 from geo_agent.agents.workflow import build_workflow_graph
+from geo_agent.utils import canvas_refresh
+from geo_agent.utils.canvas_refresh import MainThreadRunner, set_main_runner
+from geo_agent.utils.model_export import build_model, collect_steps
 
 
 def run(llm, query="test request"):
@@ -28,6 +31,10 @@ def layer_name(layer_id):
     layer = QgsProject.instance().mapLayer(layer_id)
     return layer.name() if layer is not None else None
 
+
+# Passes the pre-flight check but fails when run ("begins with" needs a text
+# column): exercises the LLM error-analysis paths
+RUNTIME_FAILURE = dict(INPUT="rivers", FIELD="cat", OPERATOR=6, VALUE="1")
 
 BUFFER_THEN_CLIP = [
     task(1, "Buffer rivers by 500 m", "buffer", ["buffer"]),
@@ -70,6 +77,24 @@ class RoutingAndWiringTest(unittest.TestCase):
         out = run(llm)
         self.assertNotIn("RouteDecision", llm.names())
         self.assertTrue(all(r["success"] for r in out["task_results"].values()), out["task_results"])
+
+    def test_failed_routing_falls_back_on_the_decomposition(self):
+        # A task with an algorithm hint/keywords is geoprocessing, others aren't
+        llm = FakeLLM(
+            {
+                "TaskDecomposition": [decomposition(
+                    task(1, "Buffer rivers by 10 m", "buffer", ["buffer"]),
+                    task(2, "Tell me what was done"),
+                )],
+                "RouteDecision": [RuntimeError("provider down")] * 2,
+                "AlgorithmSelection": [selection("native:buffer")],
+                "ParameterGathering": [params(INPUT="rivers", DISTANCE=10)],
+            },
+            tool_calls=[None],
+        )
+        out = run(llm)
+        self.assertEqual(out["task_results"][1]["algorithm"], "native:buffer")
+        self.assertNotIn("algorithm", out["task_results"][2])  # handled by the LLM task
 
     def test_gather_prompt_lists_advanced_params_and_dependency(self):
         tasks = [dict(t, is_geoprocessing=True) for t in BUFFER_THEN_CLIP]
@@ -183,7 +208,7 @@ class RetryTest(unittest.TestCase):
             "TaskDecomposition": [self.extract_task()],
             "AlgorithmSelection": [selection("native:extractbyattribute")],
             "ParameterGathering": [
-                params(INPUT="rivers", FIELD="no_such_field", OPERATOR=9),
+                params(**RUNTIME_FAILURE),
                 params(INPUT="rivers", FIELD=self.field, OPERATOR=9),
             ],
             "ErrorAnalysis": [dict(diagnosis="field missing", failure_kind="bad_parameter")],
@@ -198,7 +223,7 @@ class RetryTest(unittest.TestCase):
             "TaskDecomposition": [self.extract_task()],
             "AlgorithmSelection": [selection("native:extractbyattribute"), selection("native:extractbyexpression")],
             "ParameterGathering": [
-                params(INPUT="rivers", FIELD="no_such_field", OPERATOR=9),
+                params(**RUNTIME_FAILURE),
                 params(INPUT="rivers", EXPRESSION="1=1"),
             ],
             "ErrorAnalysis": [dict(diagnosis="wrong tool", failure_kind="wrong_algorithm")],
@@ -212,7 +237,7 @@ class RetryTest(unittest.TestCase):
             "TaskDecomposition": [self.extract_task()],
             "AlgorithmSelection": [selection("native:extractbyattribute"), selection("native:extractbyexpression")],
             "ParameterGathering": [
-                params(INPUT="rivers", FIELD="no_such_field", OPERATOR=9),
+                params(**RUNTIME_FAILURE),
                 params(INPUT="rivers", EXPRESSION="1=1"),
             ],
             "ErrorAnalysis": [RuntimeError("provider down")],
@@ -226,8 +251,8 @@ class RetryTest(unittest.TestCase):
             "TaskDecomposition": [self.extract_task()],
             "AlgorithmSelection": [selection("native:extractbyattribute"), selection("native:extractbyexpression")],
             "ParameterGathering": [
-                params(INPUT="rivers", FIELD="bad1", OPERATOR=9),
-                params(INPUT="rivers", FIELD="bad2", OPERATOR=9),
+                params(**RUNTIME_FAILURE),
+                params(**dict(RUNTIME_FAILURE, FIELD="value")),
                 params(INPUT="rivers", EXPRESSION="1=1"),
             ],
             "ErrorAnalysis": [dict(diagnosis="x", failure_kind="bad_parameter")] * 2,
@@ -236,6 +261,165 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(out["task_results"][1]["algorithm"], "native:extractbyexpression")
         self.assertEqual(llm.count("AlgorithmSelection"), 2)
         self.assertEqual(llm.count("ErrorAnalysis"), 2)
+
+
+class FilterStepTest(unittest.TestCase):
+    """A filter that feeds a later step runs as native:extractbyexpression."""
+
+    def setUp(self):
+        self.rivers, _ = _bootstrap.reset_project()
+        self.expected = sum(1 for f in self.rivers.getFeatures() if f["value"] > 200)
+
+    @staticmethod
+    def filter_then_buffer(*gathered):
+        """Extract rivers (one gather answer per item), then buffer them."""
+        return FakeLLM({
+            "TaskDecomposition": [decomposition(
+                task(1, "Extract rivers with flow above 200", "extract by expression", ["extract"], geo=True),
+                task(2, "Buffer them by 10 m", "buffer", ["buffer"], [1], geo=True),
+            )],
+            "AlgorithmSelection": [selection("native:extractbyexpression"), selection("native:buffer")],
+            "ParameterGathering": [
+                g if isinstance(g, dict) else params(INPUT="rivers", EXPRESSION=g) for g in gathered
+            ] + [params(INPUT="task_1_output", DISTANCE=10)],
+        })
+
+    def test_filtered_features_feed_the_next_step_and_the_model(self):
+        llm = self.filter_then_buffer(dict(
+            parameters={"INPUT": "rivers", "EXPRESSION": '"value" > 200', "OUTPUT": "TEMPORARY_OUTPUT"},
+            user_note="Used column 'value' for 'flow'.",
+        ))
+        out = run(llm)
+        results = out["task_results"]
+        self.assertTrue(all(r["success"] for r in results.values()), results)
+        self.assertEqual(results[1]["notes"], ["Used column 'value' for 'flow'."])
+        self.assertIn("Note: Used column 'value'", llm.prompts("invoke")[-1])  # the summary is told
+
+        buffered = QgsProject.instance().mapLayer(out["available_output_ids"]["task_2_output"])
+        self.assertLess(self.expected, self.rivers.featureCount())
+        self.assertEqual(buffered.featureCount(), self.expected)
+
+        model = build_model(collect_steps(results), "filter then buffer")
+        self.assertEqual(len(model.childAlgorithms()), 2)
+        source = model.childAlgorithm("step_2").parameterSources()["INPUT"][0]
+        self.assertEqual(source.outputChildId(), "step_1")
+
+    def test_columns_listed_only_for_column_parameters(self):
+        llm = self.filter_then_buffer('"value" > 200')
+        run(llm)
+        extract_prompt, buffer_prompt = llm.prompts("ParameterGathering")
+        self.assertIn("Columns of vector layers", extract_prompt)
+        self.assertIn("value (Integer64: 4 to 272)", extract_prompt)
+        self.assertNotIn("Columns of vector layers", buffer_prompt)
+
+    def test_misspelled_column_is_rejected_and_regathered(self):
+        llm = self.filter_then_buffer('"valu" > 200', '"value" > 200')
+        out = run(llm)
+        self.assertTrue(all(r["success"] for r in out["task_results"].values()), out["task_results"])
+        self.assertIn("Columns of 'rivers'", llm.prompts("ParameterGathering")[1])
+        self.assertEqual(llm.count("ErrorAnalysis"), 0)
+
+    def test_question_from_the_llm_stops_without_retries(self):
+        llm = self.filter_then_buffer(dict(
+            parameters={}, clarification="Do you mean 'cat' or 'value'?",
+        ))
+        out = run(llm)
+        result = out["task_results"][1]
+        self.assertFalse(result["success"])
+        self.assertEqual(result["clarification"], "Do you mean 'cat' or 'value'?")
+        self.assertEqual(llm.count("ParameterGathering"), 1)  # no blind retries
+        self.assertEqual(llm.count("ErrorAnalysis"), 0)
+        self.assertNotIn(2, out["task_results"])
+        self.assertIn("stopped to ask", llm.prompts("invoke")[-1])
+
+    def test_empty_result_stops_the_steps_that_use_it(self):
+        out = run(self.filter_then_buffer('"value" > 1000'))
+        result = out["task_results"][1]
+        self.assertFalse(result["success"])
+        self.assertIn("has no features", result["error"])
+        self.assertNotIn(2, out["task_results"])  # nothing buffered from an empty layer
+
+    def test_unknown_field_rejected_before_running(self):
+        llm = FakeLLM({
+            "TaskDecomposition": [decomposition(task(1, "Extract rivers", "extract", ["extract"], geo=True))],
+            "AlgorithmSelection": [selection("native:extractbyattribute")],
+            "ParameterGathering": [
+                params(INPUT="rivers", FIELD="zzqq", OPERATOR=9),
+                params(INPUT="rivers", FIELD="cat", OPERATOR=9),
+            ],
+        })
+        out = run(llm)
+        self.assertTrue(out["task_results"][1]["success"], out["task_results"])
+        self.assertEqual(llm.count("ErrorAnalysis"), 0)
+        self.assertIn("Columns of 'rivers'", llm.prompts("ParameterGathering")[1])
+
+
+class LlmTaskOutcomeTest(unittest.TestCase):
+    """Tool results decide whether a tool-using task succeeded."""
+
+    def setUp(self):
+        self.rivers, _ = _bootstrap.reset_project()
+        self.previous_runner = canvas_refresh._global_main_runner
+        set_main_runner(MainThreadRunner())
+
+    def tearDown(self):
+        set_main_runner(self.previous_runner)
+
+    def test_tool_error_fails_the_task_and_stops_the_run(self):
+        llm = FakeLLM(
+            {"TaskDecomposition": [decomposition(task(1, "Select x", geo=False), task(2, "List layers", geo=False))]},
+            tool_calls=[[{"name": "fake_tool", "args": {}, "id": "c1"}], None],
+        )
+
+        @tool
+        def fake_tool() -> str:
+            """A tool."""
+            return "**Error:** Field **x** not found."
+
+        with mock.patch.dict(workflow_module.TOOLS, {"fake_tool": fake_tool}, clear=True):
+            out = run(llm)
+        self.assertFalse(out["task_results"][1]["success"])
+        self.assertIn("Field **x** not found", out["task_results"][1]["error"])
+        self.assertNotIn(2, out["task_results"])
+
+    def test_error_then_success_is_a_success(self):
+        replies = iter(["**Error:** no column 'x'", "**Success:** Selected 2 features."])
+
+        @tool
+        def fake_tool() -> str:
+            """A tool."""
+            return next(replies)
+
+        llm = FakeLLM(
+            {"TaskDecomposition": [decomposition(task(1, "Select x", geo=False))]},
+            tool_calls=[[{"name": "fake_tool", "args": {}, "id": "c1"}], [{"name": "fake_tool", "args": {}, "id": "c2"}], None],
+        )
+        with mock.patch.dict(workflow_module.TOOLS, {"fake_tool": fake_tool}, clear=True):
+            out = run(llm)
+        self.assertTrue(out["task_results"][1]["success"], out["task_results"])
+
+    def test_selection_feeding_a_processing_step_is_saved_as_a_layer(self):
+        expected = sum(1 for f in self.rivers.getFeatures() if f["value"] > 200)
+        llm = FakeLLM(
+            {
+                "TaskDecomposition": [decomposition(
+                    task(1, "Select rivers with value above 200", geo=False),
+                    task(2, "Buffer them by 10 m", "buffer", ["buffer"], [1], geo=True),
+                )],
+                "AlgorithmSelection": [selection("native:buffer")],
+                "ParameterGathering": [params(INPUT="task_1_output", DISTANCE=10)],
+            },
+            tool_calls=[[{
+                "name": "select_by_expression",
+                "args": {"layer_name": "rivers", "expression": '"value" > 200'},
+                "id": "c1",
+            }], None],
+        )
+        out = run(llm)
+        self.assertTrue(all(r["success"] for r in out["task_results"].values()), out["task_results"])
+        buffered = QgsProject.instance().mapLayer(out["available_output_ids"]["task_2_output"])
+        self.assertEqual(buffered.featureCount(), expected)
+        self.assertIn("were saved as", out["task_results"][1]["notes"][-1])
 
 
 class LayerListingTest(unittest.TestCase):

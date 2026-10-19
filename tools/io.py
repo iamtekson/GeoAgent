@@ -19,12 +19,11 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from langchain_core.tools import tool
 from ..utils.canvas_refresh import get_qgis_interface, qgis_main_thread
 from ..utils.layer_matching import find_layer
+from ..utils.layer_columns import describe_column
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
-
-# import raster and vector extensions from constants
-from ..config.constants import RASTER_EXTENSIONS, VECTOR_EXTENSIONS
+from ..utils.layer_loading import layers_from_source
 
 _logger = get_processing_logger()
 
@@ -34,68 +33,46 @@ _logger = get_processing_logger()
 def add_layer_to_qgis(
     path_or_url: str,
     layer_name: Optional[str] = None,
-    layer_type: Optional[str] = None,
 ) -> str:
     """
-    Add a vector or raster layer to QGIS from a file path or URL.
+    Add the layers of a file or URL to QGIS. QGIS detects the format (vector,
+    raster, mesh, point cloud); every layer of a multi-layer file such as a
+    GeoPackage is added, or just one with '|layername=<table>'.
 
     Args:
-        path_or_url: File path or URL to the layer (e.g., '/path/to/file.shp', 'https://example.com/data.geojson')
-        layer_name: Optional custom name for the layer. If not provided, uses the filename.
-        layer_type: Optional layer type hint ('vector' or 'raster'). Auto-detected if not provided.
+        path_or_url: File path or URL (e.g., '/path/to/file.shp', 'https://example.com/data.geojson')
+        layer_name: Optional name for the layer (when the source holds one layer).
 
     Returns:
-        Success message with layer name or error message.
+        Success message with the added layers or error message.
 
     Examples:
         - add_layer_to_qgis('/data/cities.shp')
         - add_layer_to_qgis('https://example.com/data.geojson', 'Cities')
-        - add_layer_to_qgis('/data/elevation.tif', layer_type='raster')
+        - add_layer_to_qgis('/data/city.gpkg|layername=roads')
     """
     _logger.info(f"Adding layer to QGIS: {path_or_url}")
     try:
-        # Determine layer name
-        if not layer_name:
-            layer_name = os.path.splitext(os.path.basename(path_or_url))[0]
+        layers = layers_from_source(path_or_url)
+        if not layers:
+            _logger.error(f"Failed to load a layer from '{path_or_url}'")
+            return f"**Error:** Failed to load layer **{path_or_url}**. QGIS could not read it as a layer."
 
-        # Auto-detect layer type if not provided
-        if not layer_type:
+        if len(layers) == 1:
+            name = layer_name or os.path.splitext(os.path.basename(path_or_url.split("|")[0]))[0]
+            layers[0].setName(name)
 
-            ext = os.path.splitext(path_or_url.lower())[1]
-            if ext in RASTER_EXTENSIONS:
-                layer_type = "raster"
-                _logger.debug(f"Auto-detected layer type: raster (extension: {ext})")
-            elif ext in VECTOR_EXTENSIONS:
-                layer_type = "vector"
-                _logger.debug(f"Auto-detected layer type: vector (extension: {ext})")
+        added = []
+        for layer in layers:
+            QgsProject.instance().addMapLayer(layer)
+            if isinstance(layer, QgsVectorLayer):
+                added.append(f"**{layer.name()}** (vector, {layer.featureCount()} features)")
+            elif isinstance(layer, QgsRasterLayer):
+                added.append(f"**{layer.name()}** (raster)")
             else:
-                # Default to vector for URLs or unknown types
-                layer_type = "vector"
-                _logger.debug(f"Unknown extension '{ext}', defaulting to vector")
-
-        layer = None
-
-        if layer_type.lower() == "vector":
-            # Create vector layer
-            layer = QgsVectorLayer(path_or_url, layer_name, "ogr")
-        elif layer_type.lower() == "raster":
-            # Create raster layer
-            layer = QgsRasterLayer(path_or_url, layer_name)
-        else:
-            return f"**Error:** Invalid layer type **{layer_type}**. Use 'vector' or 'raster'."
-
-        # Check if layer is valid
-        if not layer.isValid():
-            _logger.error(
-                f"Failed to load layer from '{path_or_url}' - layer is invalid"
-            )
-            return f"**Error:** Failed to load layer **{path_or_url}**. The layer is invalid."
-
-        # Add layer to QGIS project
-        QgsProject.instance().addMapLayer(layer)
-        _logger.info(f"Successfully added {layer_type} layer '{layer_name}' to project")
-
-        return f"**Success:** Added {layer_type} layer **{layer_name}** to QGIS with {layer.featureCount() if layer_type == 'vector' else 'N/A'} features."
+                added.append(f"**{layer.name()}** ({type(layer).__name__})")
+        _logger.info(f"Added {len(layers)} layer(s) from '{path_or_url}'")
+        return f"**Success:** Added to QGIS: {', '.join(added)}."
 
     except Exception as e:
         _logger.error(f"Error adding layer: {str(e)}", exc_info=True)
@@ -199,7 +176,7 @@ def zoom_to_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        # Find layer by name (fuzzy match to tolerate spacing/casing/extra words)
         layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
@@ -241,7 +218,7 @@ def get_layer_columns(layer_name: str) -> str:
     try:
         project = QgsProject.instance()
 
-        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        # Find layer by name (fuzzy match to tolerate spacing/casing/extra words)
         layer, matched_name = find_layer(project, layer_name)
 
         if not layer:
@@ -271,29 +248,12 @@ def get_layer_columns(layer_name: str) -> str:
         column_info.append("\nColumn Details:")
         column_info.append("-" * 80)
 
-        for idx, field in enumerate(fields, 1):
-            field_name = field.name()
-            field_type = field.typeName()
-            field_length = field.length()
-
-            # Try to get unique value count for categorical fields
-            if field.type() in [10, 2]:  # String or Integer types
-                unique_values = layer.uniqueValues(fields.indexOf(field_name))
-                unique_count = len(unique_values)
-
-                if unique_count <= 10:
-                    sample_values = (
-                        f"Values: {', '.join(str(v) for v in list(unique_values)[:10])}"
-                    )
-                else:
-                    sample_values = f"Unique values: {unique_count}"
-            else:
-                sample_values = ""
-
-            column_info.append(f"\n{idx}. {field_name}")
-            column_info.append(f"   Type: {field_type} (Length: {field_length})")
-            if sample_values:
-                column_info.append(f"   {sample_values}")
+        # Each column with some of its values (or its range), so filters use
+        # real names and values ("Motorway" vs "motorway")
+        for index, field in enumerate(fields):
+            column_info.append(f"\n{index + 1}. {describe_column(layer, index, samples=10)}")
+            if field.alias():
+                column_info.append(f"   Alias: {field.alias()}")
 
         _logger.info(f"Retrieved {fields.count()} columns from layer '{matched_name}'")
         return "\n".join(column_info)
@@ -328,7 +288,7 @@ def remove_layer(layer_name: str) -> str:
 
         project = QgsProject.instance()
 
-        # Find layer by name (fuzzy match to tolerate spacing/casing/filler-word differences)
+        # Find layer by name (fuzzy match to tolerate spacing/casing/extra words)
         layer, matched_name = find_layer(project, layer_name)
 
         if not layer:

@@ -29,12 +29,12 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 77 tests in 11.1s
+Ran 120 tests in 13.3s
 
 OK
 ```
 
-Log lines such as `GEO execute failed: Field 'no_such_field' was not found` are expected: the retry tests make steps fail on purpose.
+Log lines such as `GEO execute failed: Operator 'begins with' can be used only with string fields` or `GEO pre-flight check failed: ...` are expected: the retry tests make steps fail on purpose.
 
 ### Running part of the suite
 
@@ -64,6 +64,12 @@ cd tests
 | `…test_unresolvable_value_is_left_for_validation` | unknown names are left alone, not guessed |
 | `…test_unknown_algorithm_returns_input_unchanged` | normalization never fails the run |
 | `ValidateParametersTest` (3 tests) | the pre-flight check passes valid input, names every bad value, and reports unknown algorithms |
+| `AlgorithmSearchTest.test_task_with_llm_keywords` | with the LLM's search keywords, the right algorithm (Voronoi, extract by expression, count points in polygon, buffer) is in the top 3 |
+| `…test_common_words_and_numbers_barely_count` | "the", "by" and "500" don't push other algorithms above buffer, without any stopword list |
+| `ColumnParametersTest.test_unknown_field_is_rejected_with_the_real_columns` | an unknown `FIELD` is rejected, listing the layer's columns with their values |
+| `…test_expression_with_unknown_column_is_rejected` | an expression naming a missing column is rejected (QGIS would run it and match nothing) |
+| `…test_valid_columns_pass` | valid field and expression parameters pass |
+| `…test_invalid_option_lists_the_options` | an invalid option (`"inside"`) is rejected with QGIS's option list |
 | `AlgorithmMetadataTest.test_parameter_flags` | advanced/hidden flags are reported per parameter |
 | `ExecuteProcessingTest.test_outputs_get_ids_and_unique_names` | results carry layer ids, and repeated runs get unique layer names |
 
@@ -73,6 +79,7 @@ cd tests
 | --- | --- |
 | `RoutingAndWiringTest.test_without_flag_routing_falls_back_to_llm_as_before` | without `is_geoprocessing`, the exact old sequence of LLM calls runs |
 | `…test_flag_from_decomposition_skips_routing_call` | with the flag, no routing LLM call is made |
+| `…test_failed_routing_falls_back_on_the_decomposition` | if the routing call fails, a task with an algorithm hint/keywords is geoprocessing, and one without is handled by the LLM task |
 | `…test_gather_prompt_lists_advanced_params_and_dependency` | advanced parameters are listed separately, and the dependency hint appears |
 | `…test_slips_are_normalized_before_execution` | wrong case, near-miss names, and enum labels still run, wired to the right layers |
 | `…test_repeated_run_uses_its_own_output` | a second identical run wires to its own buffer, not the first run's |
@@ -82,8 +89,43 @@ cd tests
 | `…test_wrong_algorithm_reselects` | a "wrong algorithm" failure picks another |
 | `…test_failed_analysis_falls_back_to_reselection` | if error analysis itself fails, behaviour is as before (re-select) |
 | `…test_same_algorithm_retried_only_once` | a second failure with the same algorithm excludes it |
+| `FilterStepTest.test_filtered_features_feed_the_next_step_and_the_model` | an extract step feeds only the matching features to the buffer, its `user_note` reaches the summary, and both steps are wired in the exported model |
+| `…test_columns_listed_only_for_column_parameters` | the gather prompt lists layer columns (with values) for extract-by-expression, not for buffer |
+| `…test_misspelled_column_is_rejected_and_regathered` | a misspelled column is rejected before running; the retry prompt lists the real columns |
+| `…test_question_from_the_llm_stops_without_retries` | a `clarification` from the LLM stops the run without retries, and the summary is asked to put the question to the user |
+| `…test_empty_result_stops_the_steps_that_use_it` | a filter result with no features stops the steps that depend on it |
+| `…test_unknown_field_rejected_before_running` | an unknown `FIELD` is rejected before running, and the retry prompt lists the layer's columns |
+| `LlmTaskOutcomeTest.test_tool_error_fails_the_task_and_stops_the_run` | a tool error fails the task instead of being reported as success |
+| `…test_error_then_success_is_a_success` | a tool call that failed, then succeeded on a second try, counts as success |
+| `…test_selection_feeding_a_processing_step_is_saved_as_a_layer` | a selection made for a later processing step is saved as a layer, so only the selected features are buffered |
 | `LayerListingTest.test_every_layer_kind_is_listed` | the layer list the LLM sees describes vector (with geometry), raster, geometry-less and other layer kinds |
 | `CheckpointTest.test_steps_survive_the_checkpointer` | executed steps can be read back from the saved conversation state |
+
+### `test_io.py`: adding layers (`tools/io.py`, `utils/layer_loading.py`)
+
+| Test | Checks that |
+| --- | --- |
+| `AddLayerTest.test_every_table_of_a_geopackage` | both tables of a two-layer GeoPackage are added |
+| `…test_one_table_of_a_geopackage` | `\|layername=pts` adds just that table, under the given name |
+| `…test_format_detected_by_qgis` | FlatGeobuf, ASCII grid and GeoTIFF load as the right layer type, without an extension list |
+| `…test_not_a_layer` | an HTML file and a missing file are errors, and nothing is added |
+
+### `test_layer_matching.py`: layer-name matching (`utils/layer_matching.py`)
+
+| Test | Checks that |
+| --- | --- |
+| `FindBestLayerMatchTest` (5 tests) | extra words in the request ("the rivers layer", "stream network of nepal") still find the layer; the name covering most words wins; near-misses and case; non-English letters are kept; nothing similar gives no match |
+
+### `test_filters.py`: selection tools (`tools/filters.py`)
+
+These call the tools on small memory layers, with a stub map canvas; QGIS's own selection algorithms do the work.
+
+| Test | Checks that |
+| --- | --- |
+| `SelectByExpressionTest` (7 tests) | `ILIKE` ignores case and the reply lists the selection; an unknown column lists the real columns and leaves the selection alone; selection methods combine; an unknown method lists QGIS's options; an empty result shows the values of the columns used; QGIS functions (`$area = maximum($area)`) work; invalid expressions are errors |
+| `SelectByLocationTest` (5 tests) | layers in different CRSs; "within" maps to QGIS's "are within"; only the selected reference features; an unknown predicate lists the options; within a distance, in the layer's units |
+| `CalculateTest` (4 tests) | counts with a filter; sums over the selection; lengths in the project's units (meters, not degrees); an unknown column lists the real columns |
+| `SelectionHelpersTest` (2 tests) | zoom to and clear the selection; column listings show values and ranges |
 
 ### `test_model_export.py`: model export (`utils/model_export.py`)
 

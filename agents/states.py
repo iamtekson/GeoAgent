@@ -66,6 +66,12 @@ class GeoTaskState(TypedDict, total=False):
     retry_same_algorithm: bool
     retry_count: int
     success: bool
+    # user-facing notes, e.g. a column used in place of the one named
+    notes: List[str]
+    # question for the user when the LLM can't tell what they meant
+    clarification: Optional[str]
+    # stop without retrying (clarification needed)
+    no_retry: bool
 
 
 __all__ = [

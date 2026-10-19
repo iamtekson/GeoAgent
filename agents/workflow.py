@@ -24,11 +24,12 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from ..tools import TOOLS
+from ..tools import TOOLS, execute_processing
 from ..prompts.system import (
     TASK_ROUTING_PROMPT,
     TASK_DECOMPOSITION_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
+    TOOL_GUIDELINES,
 )
 from .states import WorkflowState
 from .schemas import RouteDecision, TaskDecomposition
@@ -37,14 +38,8 @@ from ..logger.processing_logger import get_processing_logger
 
 _logger = get_processing_logger()
 
-MAX_TOOL_ROUNDS = 3
-
-# Heuristic fallback when the routing LLM call fails
-_GEO_KEYWORDS = (
-    "buffer", "clip", "dissolve", "union", "intersect", "difference",
-    "statistic", "zonal", "interpolat", "reproject", "merge", "slope",
-    "hillshade", "voronoi", "centroid", "simplif", "raster calc", "overlay",
-)
+# Room for: inspect columns, filter, retry with a corrected column, check
+MAX_TOOL_ROUNDS = 5
 
 
 def _current_task(state: WorkflowState) -> Dict[str, Any]:
@@ -107,6 +102,43 @@ def _register_outputs(
         if i < len(ids):
             available_ids[label] = ids[i]
     return {"available_outputs": available, "available_output_ids": available_ids}
+
+
+def _tool_failed(content: str) -> bool:
+    """Tools start failure messages with '**Error:**' (or 'Error ...')."""
+    return (content or "").lstrip().startswith(("**Error:**", "Error"))
+
+
+def _empty_vector(layer_id: str) -> bool:
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+
+        layer = QgsProject.instance().mapLayer(layer_id)
+        return isinstance(layer, QgsVectorLayer) and layer.featureCount() == 0
+    except Exception as e:
+        _logger.warning(f"Could not count features of {layer_id}: {e}")
+        return False
+
+
+def _selections() -> Dict[str, frozenset]:
+    """Selected feature ids of every vector layer, by layer id."""
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+
+        return {
+            layer_id: frozenset(layer.selectedFeatureIds())
+            for layer_id, layer in QgsProject.instance().mapLayers().items()
+            if isinstance(layer, QgsVectorLayer)
+        }
+    except Exception as e:
+        _logger.warning(f"Could not read selections: {e}")
+        return {}
+
+
+def _has_dependents(state: WorkflowState, task_id: Any) -> bool:
+    return any(
+        task_id in (t.get("dependencies") or []) for t in state.get("task_queue") or []
+    )
 
 
 def build_workflow_graph(llm) -> Any:
@@ -187,8 +219,10 @@ def build_workflow_graph(llm) -> Any:
                 f"geoprocessing={is_processing} ({decision.reason})"
             )
         except Exception as e:
-            is_processing = any(kw in operation.lower() for kw in _GEO_KEYWORDS)
-            _logger.warning(f"WORKFLOW routing failed ({e}); heuristic -> {is_processing}")
+            # Fall back on what decomposition said: it only gives an
+            # algorithm hint or search keywords for geoprocessing tasks
+            is_processing = bool(task.get("algorithm_hint") or task.get("search_keywords"))
+            _logger.warning(f"WORKFLOW routing failed ({e}); from decomposition -> {is_processing}")
 
         return {"current_task_is_processing": is_processing}
 
@@ -217,6 +251,18 @@ def build_workflow_graph(llm) -> Any:
 
         success = bool(outcome.get("success"))
         output_layers = outcome.get("output_layers") or []
+        output_ids = outcome.get("output_layer_ids") or []
+        error = outcome.get("error_message")
+
+        # An empty result (e.g. a filter that matched nothing) would make
+        # every later step run on nothing: stop here and say so instead
+        if success and output_ids and _has_dependents(state, task_id):
+            if all(_empty_vector(i) for i in output_ids):
+                success = False
+                error = (
+                    f"The result ({', '.join(output_layers)}) has no features, "
+                    "so the steps that use it were not run."
+                )
 
         task_results = dict(state.get("task_results") or {})
         task_results[task_id] = {
@@ -224,8 +270,11 @@ def build_workflow_graph(llm) -> Any:
             "operation": task.get("operation", ""),
             "algorithm": outcome.get("selected_algorithm"),
             "output_layers": output_layers,
-            "error": outcome.get("error_message"),
+            "error": error,
+            "notes": list(outcome.get("notes") or []),
         }
+        if outcome.get("clarification"):
+            task_results[task_id]["clarification"] = outcome["clarification"]
 
         delta: WorkflowState = {"task_results": task_results}
 
@@ -236,20 +285,19 @@ def build_workflow_graph(llm) -> Any:
                 "parameters": _json_safe(outcome.get("parameters") or {}),
                 "outputs": dict(outcome.get("outputs") or {}),
             }
-            delta.update(
-                _register_outputs(
-                    state, task_id, output_layers, outcome.get("output_layer_ids") or []
-                )
-            )
+            delta.update(_register_outputs(state, task_id, output_layers, output_ids))
             delta["error_message"] = None
         else:
-            delta["error_message"] = outcome.get("error_message") or "Geoprocessing task failed"
+            delta["error_message"] = error or "Geoprocessing task failed"
             delta["error_analysis"] = {"diagnosis": outcome.get("error_diagnosis")}
 
         return delta
 
     def llm_task_node(state: WorkflowState) -> WorkflowState:
-        """Run a non-geoprocessing task with the LLM + QGIS tools (ephemeral context)."""
+        """Run a non-geoprocessing task with the LLM + QGIS tools (ephemeral context).
+
+        The task fails if its last round of tool calls failed.
+        """
         task = _current_task(state)
         task_id = task.get("task_id", state.get("current_task_index", 0) + 1)
         operation = task.get("operation", "")
@@ -265,7 +313,8 @@ def build_workflow_graph(llm) -> Any:
                 content=(
                     "You are GeoAgent inside QGIS. Execute exactly this task, "
                     "using the available tools when needed. Then reply with one "
-                    "or two sentences stating what you did or the answer."
+                    "or two sentences stating what you did or the answer.\n\n"
+                    + TOOL_GUIDELINES
                 )
             ),
             HumanMessage(
@@ -280,11 +329,15 @@ def build_workflow_graph(llm) -> Any:
             bound_llm = llm
 
         layers_before = set(_project_layer_ids())
+        selections_before = _selections()
+        notes: List[str] = []
+        last_round_errors: List[str] = []
         try:
             response = bound_llm.invoke(convo)
             rounds = 0
             while getattr(response, "tool_calls", None) and rounds < MAX_TOOL_ROUNDS:
                 convo.append(response)
+                round_errors = []
                 for call in response.tool_calls:
                     tool_inst = TOOLS.get(call["name"])
                     try:
@@ -296,6 +349,9 @@ def build_workflow_graph(llm) -> Any:
                     except Exception as e:
                         content = f"Error executing tool '{call['name']}': {e}"
                     convo.append(ToolMessage(content=content, tool_call_id=call["id"]))
+                    if _tool_failed(content):
+                        round_errors.append(content.strip())
+                last_round_errors = round_errors
                 response = bound_llm.invoke(convo)
                 rounds += 1
 
@@ -306,20 +362,41 @@ def build_workflow_graph(llm) -> Any:
                     for p in summary
                 )
 
+            failure = last_round_errors[0] if last_round_errors else ""
+            added_ids: List[str] = []
+            if failure:
+                _logger.warning(f"WORKFLOW llm task {task_id} failed: {failure}")
+            else:
+                # Layers this task loaded (e.g. "add demo.shp") become its
+                # outputs, so dependent tasks get an explicit reference to them.
+                added_ids = [i for i in _project_layer_ids() if i not in layers_before]
+                if not added_ids and _has_dependents(state, task_id):
+                    # Processing algorithms ignore selections: QGIS's "Save
+                    # selected features" hands the next task a layer of them.
+                    for layer_id, ids in _selections().items():
+                        if ids and ids != selections_before.get(layer_id):
+                            saved = execute_processing.invoke({
+                                "algorithm": "native:saveselectedfeatures",
+                                "parameters": {"INPUT": layer_id, "OUTPUT": "TEMPORARY_OUTPUT"},
+                            })
+                            if saved.get("success"):
+                                added_ids += saved["output_layer_ids"]
+                                notes.append(
+                                    f"The selected features of '{_layer_name(layer_id)}' were saved as "
+                                    f"'{', '.join(saved['output_layers'])}' for the next step."
+                                )
+                _logger.info(f"WORKFLOW llm task {task_id} done")
+
             task_results = dict(state.get("task_results") or {})
             task_results[task_id] = {
-                "success": True,
+                "success": not failure,
                 "operation": operation,
                 "summary": str(summary)[:600],
                 "output_layers": [],
-                "error": None,
+                "error": failure or None,
+                "notes": notes,
             }
-            _logger.info(f"WORKFLOW llm task {task_id} done")
-            delta: WorkflowState = {"task_results": task_results, "error_message": None}
-
-            # Layers this task loaded (e.g. "add demo.shp") become its outputs,
-            # so dependent tasks get an explicit reference to them.
-            added_ids = [i for i in _project_layer_ids() if i not in layers_before]
+            delta: WorkflowState = {"task_results": task_results, "error_message": failure or None}
             if added_ids:
                 delta.update(
                     _register_outputs(
@@ -361,26 +438,39 @@ def build_workflow_graph(llm) -> Any:
         analysis = state.get("error_analysis") or {}
 
         lines = []
+        notes: List[str] = []
+        clarification = ""
         for task_id in sorted(results):
             r = results[task_id]
             mark = "OK" if r.get("success") else "FAILED"
             detail = ""
-            if r.get("output_layers"):
+            if r.get("clarification"):
+                mark = "STOPPED"
+                clarification = r["clarification"]
+                detail = " -> needs clarification"
+            elif r.get("output_layers"):
                 detail = f" -> {', '.join(r['output_layers'])}"
+            elif r.get("error") and not r.get("success"):
+                detail = f" -> {r['error'][:300]}"
             elif r.get("summary"):
                 detail = f" -> {r['summary'][:200]}"
-            elif r.get("error"):
-                detail = f" -> {r['error'][:200]}"
             lines.append(f"[{mark}] Task {task_id}: {r.get('operation', '')}{detail}")
+            for note in r.get("notes") or []:
+                lines.append(f"    Note: {note}")
+                notes.append(note)
 
-        status = "FAILED" if error else "SUCCESS"
+        status = "NEEDS CLARIFICATION" if clarification else ("FAILED" if error else "SUCCESS")
         context = (
             f"User request: {state.get('user_query', '')}\n"
             f"Status: {status}\n"
             f"Tasks:\n" + "\n".join(lines)
         )
-        if error and analysis.get("diagnosis"):
+        if clarification:
+            context += f"\nThe run stopped to ask the user: {clarification}"
+        elif error and analysis.get("diagnosis"):
             context += f"\nFailure diagnosis: {analysis['diagnosis']}"
+        if notes:
+            context += "\nTell the user about every Note."
 
         try:
             response = llm.invoke(
@@ -392,7 +482,8 @@ def build_workflow_graph(llm) -> Any:
             done = sum(1 for r in results.values() if r.get("success"))
             summary = (
                 f"Completed {done}/{len(state.get('task_queue') or [])} tasks."
-                + (f" Failed with: {error}" if error else "")
+                + (f" {clarification}" if clarification else (f" Failed with: {error}" if error else ""))
+                + "".join(f" Note: {note}" for note in notes)
             )
 
         _logger.info("WORKFLOW finalize done")

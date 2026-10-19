@@ -71,6 +71,29 @@ def reset_project():
     return rivers, dem
 
 
+def memory_layer(uri, name, rows):
+    """A memory layer added to the project.
+
+    *uri* is a memory-provider definition such as
+    "Point?crs=EPSG:3857&field=name:string"; *rows* are (attributes, WKT)
+    pairs, one feature each (WKT may be None).
+    """
+    from qgis.core import QgsFeature, QgsGeometry
+
+    layer = QgsVectorLayer(uri, name, "memory")
+    features = []
+    for attributes, wkt in rows:
+        feature = QgsFeature(layer.fields())
+        feature.setAttributes(list(attributes))
+        if wkt:
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+        features.append(feature)
+    layer.dataProvider().addFeatures(features)
+    layer.updateExtents()
+    QgsProject.instance().addMapLayer(layer)
+    return layer
+
+
 @atexit.register
 def _cleanup():
     QgsProject.instance().removeAllMapLayers()

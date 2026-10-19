@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Filtering in General mode now uses QGIS's own tools:**
+  - The assistant writes the condition as a QGIS expression, and QGIS's *Select by Expression* runs it. Any condition QGIS can express works. Text is compared case-insensitively: before, "kshetri in name" found nothing when the data said `Kshetri`, and the reply still said the selection had succeeded.
+  - *Select by location* replaces *select by geometry*. It uses QGIS's *Select by Location* (or *Select within Distance*), so layers in different coordinate systems work. Before, they silently gave wrong results, and the largest feature of a shapefile was missed when it was the first one.
+  - New tools: *calculate* (counts, totals and averages with QGIS aggregate expressions), *zoom to selection* and *clear selection*.
+  - Replies list the first selected features. When nothing matches, they show the values of the columns used.
+- **Column names don't have to be exact.** In both modes, the assistant sees each layer's columns with some of their values. It uses a column only when it clearly is the one you meant (for example `dim` for "diameter") and says so; when several could be meant, it asks. A column that doesn't exist is rejected before anything runs, with the real columns listed.
+- **Show a layer's columns** now gives some values of every column, and the range of numeric and date columns.
+- **General mode** reminds you to switch to Processing mode when you ask for geoprocessing.
+- **Processing mode filters that feed later steps:**
+  - A filter is now its own *Extract by expression* step. Before, it only selected features, which the next algorithm ignored: it processed every feature and still reported success.
+  - The filter step appears in exported models.
+  - When a step's result has no features, the steps that use it don't run.
+  - An expression with a misspelled column used to "succeed" with an empty result; it's now rejected before running.
+- **Processing mode: tool errors are no longer reported as success.** A non-processing task whose tool failed (for example, a missing column) now fails the run, and the reply explains why.
+- **Clearer pre-flight errors:** an invalid option now comes back with the list of valid options.
+- **No hardcoded word lists:** algorithm search now ranks words by how rare they are in the Processing registry instead of using stopword and synonym lists. Layer-name matching no longer relies on a list of filler words, and keeps non-English letters (`Zürich`). If the routing call fails, the decision falls back on how the task was split instead of a keyword list.
+- **Adding layers lets QGIS detect the format** instead of using a fixed list of file extensions. Formats the list missed, such as FlatGeobuf and ASCII grids, now load. Every layer of a multi-layer file such as a GeoPackage is added, or one with `|layername=`. Processing results saved to files are loaded the same way.
+
 ## 1.0.0
 
 - **Fixed ([#62](https://github.com/iamtekson/GeoAgent/issues/62)):** on macOS and Linux, every tool that touches the project (listing layers, zooming, selecting, ...) reported `Thread <id> result not found in runner` in the chat, even though it had worked. Tool results now always reach the assistant, on every platform and QGIS version.

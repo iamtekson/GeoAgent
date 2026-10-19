@@ -11,8 +11,10 @@ Runs ONE task at a time with its own scoped state (GeoTaskState):
                   |                    |          v
                   └────────────────────┴──── error_analysis
 
-Before running, execute checks the parameters with QGIS's own validation; a
-rejection skips the LLM error analysis. On failure the diagnosis feeds back
+Before running, execute checks the parameters with QGIS's own validation
+(plus column names); a rejection skips the LLM error analysis. When the LLM
+can't tell which column/layer/value the user meant, gather stops the task
+with its question instead of retrying. On failure the diagnosis feeds back
 into parameter gathering (same algorithm, when only a parameter was wrong) or
 into re-selection (excluding the failed algorithm), up to MAX_RETRIES times.
 """
@@ -31,6 +33,7 @@ from ..tools.geoprocessing import (
     normalize_parameters,
     validate_parameters,
 )
+from ..utils.layer_columns import describe_columns
 from ..prompts.system import (
     ALGORITHM_SELECTION_PROMPT,
     PARAMETER_GATHERING_PROMPT,
@@ -66,6 +69,25 @@ def _available_layers_text() -> str:
         return "\n".join(lines) if lines else "No layers loaded."
     except Exception:
         return "No layer information available."
+
+
+def _layer_columns_text(max_layers: int = 12) -> str:
+    """Columns of every vector layer, for algorithms that take column names."""
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+
+        lines = []
+        for lyr in QgsProject.instance().mapLayers().values():
+            if not isinstance(lyr, QgsVectorLayer):
+                continue
+            if len(lines) == max_layers:
+                lines.append("- ...")
+                break
+            lines.append(f"- {lyr.name()}: {describe_columns(lyr)}")
+        return "\n".join(lines) if lines else "No vector layers loaded."
+    except Exception as e:
+        _logger.warning(f"Could not list layer columns: {e}")
+        return "No column information available."
 
 
 def _previous_outputs_text(state: GeoTaskState) -> str:
@@ -306,6 +328,13 @@ def build_geoprocessing_subgraph(llm) -> Any:
         if metadata.get("help"):
             help_section = f"Algorithm help:\n{metadata['help']}\n"
 
+        columns_section = ""
+        if any(p.get("type") in ("field", "expression") for p in metadata.get("parameters", [])):
+            columns_section = (
+                "Columns of vector layers (name (type: sample values)):\n"
+                f"{_layer_columns_text()}\n\n"
+            )
+
         key_params = task.get("key_parameters") or {}
         messages = [
             SystemMessage(content=PARAMETER_GATHERING_PROMPT),
@@ -317,6 +346,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
                     f"Algorithm: {metadata.get('name', '')} ({metadata.get('id', '')})\n"
                     f"{help_section}\n"
                     f"Available layers:\n{_available_layers_text()}\n\n"
+                    f"{columns_section}"
                     f"Previous task outputs (label: layer name):\n"
                     f"{_previous_outputs_text(state)}\n"
                     f"{_dependency_hint(state)}"
@@ -334,6 +364,18 @@ def build_geoprocessing_subgraph(llm) -> Any:
         except Exception as e:
             _logger.error(f"GEO gather failed: {e}", exc_info=True)
             return {"error_message": f"Parameter gathering failed: {e}", "success": False}
+
+        # The LLM couldn't tell what the user meant: stop and ask, don't retry
+        question = (gathered.clarification or "").strip()
+        if question:
+            _logger.info(f"GEO gather needs clarification: {question}")
+            return {
+                "error_message": question,
+                "clarification": question,
+                "no_retry": True,
+                "success": False,
+            }
+        notes = [gathered.user_note.strip()] if (gathered.user_note or "").strip() else []
 
         parameters.setdefault("OUTPUT", "TEMPORARY_OUTPUT")
 
@@ -364,7 +406,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
             return {"error_message": msg, "success": False}
 
         _logger.info(f"GEO gather: {_display_params(parameters)}")
-        return {"parameters": parameters, "error_message": None}
+        return {"parameters": parameters, "error_message": None, "notes": notes}
 
     def execute_node(state: GeoTaskState) -> GeoTaskState:
         """Validate the parameters with QGIS, then run and load the outputs."""
@@ -377,7 +419,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
 
         problems = validate_parameters(algorithm, state["parameters"])
         if problems:
-            error = ("Invalid parameters: " + "; ".join(problems))[:800]
+            error = ("Invalid parameters: " + "; ".join(problems))[:1500]
             _logger.error(f"GEO pre-flight check failed: {error}")
             return {"error_message": error, "success": False, "validation_failed": True}
 
@@ -424,9 +466,11 @@ def build_geoprocessing_subgraph(llm) -> Any:
             # QGIS named the bad values itself; no LLM call needed
             kind = "bad_parameter"
             diagnosis = (
-                f"QGIS rejected the parameters before running. {error}. "
-                "Use exact names from the available layers / previous outputs "
-                "and valid options."
+                f"The parameters were rejected before running. {error}. "
+                "Use exact layer names from the available layers / previous "
+                "outputs, exact column names and values from the lists shown, "
+                "and valid options. Keep the user's intent: only change a "
+                "filter value if a listed one clearly is what they meant."
             )
         else:
             kind = ""
@@ -478,7 +522,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
 
     def after_execute(state: GeoTaskState) -> str:
         """The figure's 'Success?' decision."""
-        if state.get("success"):
+        if state.get("success") or state.get("no_retry"):
             return "done"
         if state.get("retry_count", 0) < MAX_RETRIES and state.get("selected_algorithm"):
             return "retry"
