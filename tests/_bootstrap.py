@@ -51,6 +51,13 @@ if "geo_agent" not in sys.modules:
     sys.modules["geo_agent"] = _module
     _spec.loader.exec_module(_module)
 
+# As in the plugin: code that touches the project runs through the main-thread
+# runner (tests that need it unset, or their own, swap it and restore it)
+from geo_agent.utils.canvas_refresh import MainThreadRunner, set_main_runner  # noqa: E402
+
+MAIN_RUNNER = MainThreadRunner()
+set_main_runner(MAIN_RUNNER)
+
 DATA_DIR = tempfile.mkdtemp(prefix="geoagent-test-data-")
 _DEMO = os.path.join(PLUGIN_DIR, "paper", "demo_dataset")
 for _path in glob.glob(os.path.join(_DEMO, "shp", "rivers.*")) + [

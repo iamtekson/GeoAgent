@@ -11,6 +11,7 @@ Select the people with kshetri in their name
 Which parcels are inside the city of Pokhara?
 How many schools are there?
 Zoom to the boundary layer
+Zoom to Kathmandu, Nepal
 What is the difference between a buffer and a dissolve?
 ```
 
@@ -24,6 +25,7 @@ The assistant decides when to use these tools:
 | | List layers | Name, type, feature count and visibility. |
 | | Show a layer's columns | Column names and types, with some values of each column (or its range for numbers and dates). |
 | | Zoom to a layer | |
+| | Zoom to a place | By name ("zoom to Kathmandu, Nepal"), no layer needed. Uses OpenStreetMap's Nominatim search, like QGIS's locator bar: needs internet, and the place name is sent to that service. |
 | | Remove a layer | Always asks you to confirm first. |
 | Selection | Select by expression | QGIS's *Select by Expression*: any condition QGIS can express. |
 | | Select by location | QGIS's *Select by Location*, or *Select within Distance* when you give a distance. Can use only the selected features of the other layer. |

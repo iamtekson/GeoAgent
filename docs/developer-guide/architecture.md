@@ -68,7 +68,15 @@ Successful tasks store a JSON-safe record of the step (algorithm, parameters, ou
 
 ## Threading
 
-Each request runs in a `QThread` (`llm/worker.py`) with its own asyncio loop, so QGIS stays responsive. Tools that touch the project or the map canvas (`tools/io.py`, `tools/filters.py`) are decorated with `@qgis_main_thread`: `utils/canvas_refresh.py` runs them on the main thread and waits for the result. Processing algorithms run in the worker thread through `processing.run`.
+Each request runs in a `QThread` (`llm/worker.py`) with its own asyncio loop, so QGIS stays responsive. Tools that touch the project or the map canvas (`tools/io.py`, `tools/filters.py`) are decorated with `@qgis_main_thread`: `utils/canvas_refresh.py` runs them on the main thread and waits for the result.
+
+Slow work stays in the worker thread, with only its last step on the main thread, so QGIS doesn't freeze:
+
+- *Add layer* reads or downloads the source in the worker thread.
+- *Zoom to place* looks up the place in the worker thread.
+- Processing algorithms run in the worker thread through `processing.run`.
+
+Layers made in the worker thread belong to it, so `add_to_project` (`utils/layer_loading.py`) moves them to the main thread before adding them to the project there. QGIS's project and layer tree must only be changed from the main thread.
 
 ## Model export
 

@@ -19,7 +19,7 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 
-from ..utils.layer_loading import layers_from_source
+from ..utils.layer_loading import add_to_project, layers_from_source
 from ..utils.layer_matching import find_best_layer_match
 from ..logger.processing_logger import get_processing_logger
 
@@ -571,7 +571,8 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
         base_name = f"Result - {algorithm.split(':')[-1]}"
 
         # Load every output layer/path into the project and record a usable
-        # reference (project layer name + id) for downstream tasks.
+        # reference (project layer name + id) for downstream tasks. This runs
+        # in the worker thread; add_to_project adds them on the main thread.
         for output_name, value in result.items():
             if isinstance(value, QgsMapLayer):
                 if project.mapLayer(value.id()) is None:
@@ -579,7 +580,7 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                     # ("Buffered"); keep them unique so they can't be confused
                     # with an earlier result of the same algorithm.
                     value.setName(_unique_layer_name(value.name() or base_name))
-                    project.addMapLayer(value)
+                    add_to_project([value])
                 output_layers.append(value.name())
                 output_layer_ids.append(value.id())
                 outputs[output_name] = value.id()
@@ -590,7 +591,7 @@ def execute_processing(algorithm: str, parameters: dict, **kwargs) -> dict:
                 # QGIS detects the format; reports and other files give no layer
                 for lyr in layers_from_source(value):
                     lyr.setName(_unique_layer_name(base_name))
-                    project.addMapLayer(lyr)
+                    add_to_project([lyr])
                     output_layers.append(lyr.name())
                     output_layer_ids.append(lyr.id())
                     outputs.setdefault(output_name, lyr.id())

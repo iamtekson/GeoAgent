@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Token usage accounting per request (llm/usage.py)."""
 import asyncio
-import threading
 import unittest
 
 import _bootstrap
 from fake_llm import USAGE, FakeLLM, decomposition, params, selection, task
+from test_main_thread import in_worker_thread
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
@@ -21,22 +21,23 @@ def llm_result(usage=None, llm_output=None):
 
 
 def run_like_the_worker(app, messages, tracker):
-    """Invoke the app exactly as LLMWorker does: own thread, own event loop."""
-    result = {}
+    """Invoke the app exactly as LLMWorker does: own thread, own event loop,
+    while the main thread keeps handling events as QGIS's does (tools and
+    adding layers run code on it)."""
 
     def target():
         loop = asyncio.new_event_loop()
         try:
-            result["message"] = loop.run_until_complete(
+            return loop.run_until_complete(
                 invoke_app_async(app, "usage-test", messages, callbacks=[tracker])
             )
         finally:
             loop.close()
 
-    thread = threading.Thread(target=target)
-    thread.start()
-    thread.join(timeout=120)
-    return result.get("message")
+    message, error = in_worker_thread(target)
+    if error:
+        raise error
+    return message
 
 
 class TokenUsageTrackerTest(unittest.TestCase):

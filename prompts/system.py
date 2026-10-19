@@ -13,6 +13,8 @@ TOOL_GUIDELINES = """When using QGIS tools:
   which one instead of guessing.
 - When a tool reports an error or selects nothing, read the columns and
   values it lists before answering or trying again.
+- To show a place by its name (a country, city or address), use zoom_to_place;
+  don't load layers just to find it.
 - To find features inside or near one particular feature (e.g. one city),
   select that feature first, then select by location using only the
   selected features of that layer."""

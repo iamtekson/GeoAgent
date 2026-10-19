@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 122 tests in 13.7s
+Ran 131 tests in 13.1s
 
 OK
 ```
@@ -101,7 +101,14 @@ cd tests
 | `LayerListingTest.test_every_layer_kind_is_listed` | the layer list the LLM sees describes vector (with geometry), raster, geometry-less and other layer kinds |
 | `CheckpointTest.test_steps_survive_the_checkpointer` | executed steps can be read back from the saved conversation state |
 
-### `test_io.py`: adding layers (`tools/io.py`, `utils/layer_loading.py`)
+### `test_graph.py`: General mode's conversation window (`agents/graph.py`)
+
+| Test | Checks that |
+| --- | --- |
+| `TrimContextTest` (3 tests) | short chats are sent whole; a trimmed window starts at a user message; a request longer than the window is kept whole |
+| `GeneralModeHistoryTest.test_every_llm_call_opens_with_a_user_message` | replays a three-request chat that passes the 20-message window mid-request: every LLM call still opens with a user message (Gemini rejected the old window) |
+
+### `test_io.py`: adding layers and zooming (`tools/io.py`, `utils/layer_loading.py`)
 
 | Test | Checks that |
 | --- | --- |
@@ -111,6 +118,11 @@ cd tests
 | `…test_folder_like_the_qgis_browser` | a folder adds its shapefile and GeoTIFF, not the shapefile's side files, text or `.aux.xml` files; subfolders only when asked |
 | `…test_empty_folder` | a folder with no layers is an error |
 | `…test_not_a_layer` | an HTML file and a missing file are errors, and nothing is added |
+| `LoadingThreadTest.test_add_layer_loads_in_the_background` | called from a worker thread, *Add layer* reads the source on that thread (QGIS isn't frozen) and the added layer belongs to the main thread |
+| `…test_processing_results_are_added_on_the_main_thread` | a processing result made in a worker thread is added to the project on the main thread |
+| `ZoomToPlaceTest.test_zooms_to_the_place_extent_in_the_map_crs` | the map zooms to the place's extent, converted to the map's CRS; other places with the same name are mentioned (the geocoder is replaced, so the test is offline) |
+| `…test_a_point_without_extent_keeps_the_scale` | a place with no extent is centred without changing the scale |
+| `…test_nothing_found` | an unknown place is an error and the map doesn't move |
 
 ### `test_layer_matching.py`: layer-name matching (`utils/layer_matching.py`)
 

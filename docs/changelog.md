@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Fixed:** QGIS froze while a layer was added from a URL (such as an OpenStreetMap download) or a large file: the download ran on QGIS's main thread. It now runs in the background, and only adding the finished layer touches QGIS's interface. Processing results are now also added to the project on the main thread, as QGIS requires.
+- **Fixed:** in long General-mode chats, Gemini rejected requests with "Please ensure that function call turn comes immediately after a user turn or after a function response turn". The shortened history sent to the model could start in the middle of an earlier request; it now always starts at one of your messages.
+- **Zoom to a place by name** ("zoom to Kathmandu, Nepal") without loading a layer, using OpenStreetMap's Nominatim search like QGIS's locator bar.
 - **Filtering in General mode now uses QGIS's own tools:**
   - The assistant writes the condition as a QGIS expression, and QGIS's *Select by Expression* runs it. Any condition QGIS can express works. Text is compared case-insensitively: before, "kshetri in name" found nothing when the data said `Kshetri`, and the reply still said the selection had succeeded.
   - *Select by location* replaces *select by geometry*. It uses QGIS's *Select by Location* (or *Select within Distance*), so layers in different coordinate systems work. Before, they silently gave wrong results, and the largest feature of a shapefile was missed when it was the first one.

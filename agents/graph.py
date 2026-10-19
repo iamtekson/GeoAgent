@@ -12,6 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import (
     BaseMessage,
     AIMessage,
+    HumanMessage,
     SystemMessage,
     ToolMessage,
 )
@@ -28,8 +29,11 @@ MAX_CONTEXT_MESSAGES = 20
 def _trim_context(messages: Sequence[BaseMessage]) -> List[BaseMessage]:
     """Keep system messages plus the most recent window of the conversation.
 
-    The window never starts on a ToolMessage (its triggering AIMessage must
-    be included, or providers reject the request).
+    The window always starts at a user message. Starting on a tool call or
+    tool result breaks the call/result pairing providers check (Gemini:
+    "function call turn comes immediately after a user turn or after a
+    function response turn"). If the current request alone is longer than
+    the window, it is kept whole.
     """
     system = [m for m in messages if isinstance(m, SystemMessage)]
     rest = [m for m in messages if not isinstance(m, SystemMessage)]
@@ -37,12 +41,11 @@ def _trim_context(messages: Sequence[BaseMessage]) -> List[BaseMessage]:
     if len(rest) <= MAX_CONTEXT_MESSAGES:
         return list(messages)
 
-    tail = rest[-MAX_CONTEXT_MESSAGES:]
-    start = len(rest) - MAX_CONTEXT_MESSAGES
-    while start > 0 and isinstance(tail[0], ToolMessage):
-        start -= 1
-        tail = rest[start:]
-    return system + tail
+    cut = len(rest) - MAX_CONTEXT_MESSAGES
+    user_turns = [i for i, m in enumerate(rest) if isinstance(m, HumanMessage)]
+    later = [i for i in user_turns if i >= cut]
+    start = later[0] if later else max((i for i in user_turns if i < cut), default=0)
+    return system + rest[start:]
 
 
 def build_graph_app(llm) -> Any:

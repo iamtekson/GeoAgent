@@ -6,6 +6,9 @@ Provides tools for adding, removing, and other operations (zooming, reading attr
 import os
 from typing import Optional
 from qgis.core import (
+    QgsCoordinateTransform,
+    QgsGeocoderContext,
+    QgsNominatimGeocoder,
     QgsProject,
     QgsVectorLayer,
     QgsRasterLayer,
@@ -23,13 +26,12 @@ from ..utils.layer_columns import describe_column
 
 # logger for this module
 from ..logger.processing_logger import get_processing_logger
-from ..utils.layer_loading import layers_from_source
+from ..utils.layer_loading import add_to_project, layers_from_source
 
 _logger = get_processing_logger()
 
 
 @tool
-@qgis_main_thread
 def add_layer_to_qgis(
     path_or_url: str,
     layer_name: Optional[str] = None,
@@ -58,6 +60,8 @@ def add_layer_to_qgis(
     """
     _logger.info(f"Adding layer to QGIS: {path_or_url}")
     try:
+        # Reading/downloading runs here, off the QGIS main thread, so QGIS
+        # stays responsive; only adding the finished layers runs on it
         layers = layers_from_source(path_or_url, include_subfolders)
         if not layers:
             _logger.error(f"Failed to load a layer from '{path_or_url}'")
@@ -70,13 +74,13 @@ def add_layer_to_qgis(
         for layer in layers:
             if not layer.name():  # sources read directly (e.g. URLs) come unnamed
                 layer.setName(os.path.splitext(os.path.basename(path_or_url.split("|")[0]))[0] or path_or_url)
-            QgsProject.instance().addMapLayer(layer)
             if isinstance(layer, QgsVectorLayer):
                 added.append(f"**{layer.name()}** (vector, {layer.featureCount()} features)")
             elif isinstance(layer, QgsRasterLayer):
                 added.append(f"**{layer.name()}** (raster)")
             else:
                 added.append(f"**{layer.name()}** ({type(layer).__name__})")
+        add_to_project(layers)
         _logger.info(f"Added {len(layers)} layer(s) from '{path_or_url}'")
         shown = ", ".join(added[:20]) + (f", and {len(added) - 20} more" if len(added) > 20 else "")
         return f"**Success:** Added {len(added)} layer(s) to QGIS: {shown}."
@@ -203,6 +207,64 @@ def zoom_to_layer(layer_name: str) -> str:
     except Exception as e:
         _logger.error(f"Error zooming to layer: {str(e)}", exc_info=True)
         return f"**Error:** zooming to layer: {str(e)}"
+
+
+def _geocode(place: str) -> list:
+    """Places matching *place*, from QGIS's OpenStreetMap (Nominatim) geocoder."""
+    context = QgsGeocoderContext(QgsProject.instance().transformContext())
+    return [r for r in QgsNominatimGeocoder().geocodeString(place, context) if r.isValid()]
+
+
+@qgis_main_thread
+def _zoom_canvas_to(result) -> str:
+    """Zoom the map canvas to a geocoder result; '' or an error message."""
+    iface = get_qgis_interface()
+    if not iface:
+        return "**Error:** QGIS interface not initialized. Cannot zoom."
+    canvas = iface.mapCanvas()
+    transform = QgsCoordinateTransform(
+        result.crs(), canvas.mapSettings().destinationCrs(), QgsProject.instance()
+    )
+    if result.viewport().isEmpty():  # a point without an extent: keep the scale
+        canvas.setCenter(transform.transform(result.geometry().centroid().asPoint()))
+    else:
+        canvas.setExtent(transform.transformBoundingBox(result.viewport()))
+    canvas.refresh()
+    return ""
+
+
+@tool
+def zoom_to_place(place: str) -> str:
+    """
+    Zoom the map to a place by its name (country, city, address, landmark),
+    found with QGIS's OpenStreetMap (Nominatim) geocoder; needs internet.
+    No layer is needed or added.
+
+    Args:
+        place: Place name, ideally with its region or country, e.g. 'Kathmandu, Nepal'.
+
+    Examples:
+        - zoom_to_place('Kathmandu, Nepal')
+        - zoom_to_place('Eiffel Tower, Paris')
+    """
+    _logger.info(f"Zooming to place: {place}")
+    try:
+        # The lookup runs here, off the main thread; only the zoom runs on it
+        results = _geocode(place)
+        if not results:
+            return f"**Error:** No place found for **{place}**. Try adding the region or country."
+        error = _zoom_canvas_to(results[0])
+        if error:
+            return error
+        reply = f"**Success:** Zoomed to **{results[0].identifier()}**."
+        others = [r.identifier() for r in results[1:4]]
+        if others:
+            reply += " Other places with that name: " + "; ".join(others)
+        _logger.info(f"Zoomed to '{results[0].identifier()}'")
+        return reply
+    except Exception as e:
+        _logger.error(f"Error zooming to place: {str(e)}", exc_info=True)
+        return f"**Error:** zooming to place: {str(e)}"
 
 
 @tool
@@ -527,6 +589,7 @@ __all__ = [
     "list_qgis_layers",
     "get_layer_columns",
     "zoom_to_layer",
+    "zoom_to_place",
     "remove_layer",
     "create_new_qgis_project",
     "save_qgis_project",
