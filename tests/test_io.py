@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Adding layers (tools/io.py, utils/layer_loading.py): QGIS detects the format."""
+import glob
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -60,6 +62,29 @@ class AddLayerTest(unittest.TestCase):
         self.assertIsInstance(layers["rivers"], QgsVectorLayer)
         self.assertIsInstance(layers["dem"], QgsRasterLayer)
         self.assertIsInstance(layers["elevation"], QgsRasterLayer)
+
+    def test_folder_like_the_qgis_browser(self):
+        folder = os.path.join(self.folder, "mixed")
+        os.makedirs(os.path.join(folder, "sub"))
+        for path in glob.glob(os.path.join(os.path.dirname(_bootstrap.RIVERS_PATH), "rivers.*")):
+            shutil.copy(path, folder)  # .shp with its .dbf/.shx/.prj side files
+        shutil.copy(_bootstrap.DEM_PATH, folder)
+        shutil.copy(_bootstrap.DEM_PATH, os.path.join(folder, "sub", "deep.tif"))
+        for name, text in (("notes.txt", "hello"), ("DEM.tif.aux.xml", "<PAMDataset/>")):
+            with open(os.path.join(folder, name), "w") as f:
+                f.write(text)
+
+        reply = add_layer_to_qgis.invoke({"path_or_url": folder})
+        self.assertEqual(sorted(self.project_layers()), ["DEM", "rivers"], reply)
+        self.assertIn("Added 2 layer(s)", reply)
+
+        QgsProject.instance().removeAllMapLayers()
+        add_layer_to_qgis.invoke({"path_or_url": folder, "include_subfolders": True})
+        self.assertEqual(sorted(self.project_layers()), ["DEM", "deep", "rivers"])
+
+    def test_empty_folder(self):
+        empty = tempfile.mkdtemp(prefix="geoagent-test-empty-")
+        self.assertTrue(add_layer_to_qgis.invoke({"path_or_url": empty}).startswith("**Error:**"))
 
     def test_not_a_layer(self):
         for source in (self.html, os.path.join(self.folder, "missing.shp")):

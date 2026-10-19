@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 120 tests in 13.3s
+Ran 122 tests in 13.7s
 
 OK
 ```
@@ -108,6 +108,8 @@ cd tests
 | `AddLayerTest.test_every_table_of_a_geopackage` | both tables of a two-layer GeoPackage are added |
 | `…test_one_table_of_a_geopackage` | `\|layername=pts` adds just that table, under the given name |
 | `…test_format_detected_by_qgis` | FlatGeobuf, ASCII grid and GeoTIFF load as the right layer type, without an extension list |
+| `…test_folder_like_the_qgis_browser` | a folder adds its shapefile and GeoTIFF, not the shapefile's side files, text or `.aux.xml` files; subfolders only when asked |
+| `…test_empty_folder` | a folder with no layers is an error |
 | `…test_not_a_layer` | an HTML file and a missing file are errors, and nothing is added |
 
 ### `test_layer_matching.py`: layer-name matching (`utils/layer_matching.py`)

@@ -19,6 +19,7 @@
 - **Clearer pre-flight errors:** an invalid option now comes back with the list of valid options.
 - **No hardcoded word lists:** algorithm search now ranks words by how rare they are in the Processing registry instead of using stopword and synonym lists. Layer-name matching no longer relies on a list of filler words, and keeps non-English letters (`Zürich`). If the routing call fails, the decision falls back on how the task was split instead of a keyword list.
 - **Adding layers lets QGIS detect the format** instead of using a fixed list of file extensions. Formats the list missed, such as FlatGeobuf and ASCII grids, now load. Every layer of a multi-layer file such as a GeoPackage is added, or one with `|layername=`. Processing results saved to files are loaded the same way.
+- **Load a whole folder:** "load all the layers from C:\data\project" adds every layer the QGIS Browser shows in that folder, optionally including subfolders. A shapefile's side files (`.dbf`, `.shx`, `.prj`) aren't added as extra tables.
 
 ## 1.0.0
 

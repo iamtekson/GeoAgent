@@ -4,6 +4,7 @@ General mode is a conversation with an assistant that can act on your QGIS proje
 
 ```text
 Add C:\data\cities.shp
+Load all the layers from C:\data\project
 What columns does the cities layer have?
 Select cities with population greater than 100000
 Select the people with kshetri in their name
@@ -19,7 +20,7 @@ The assistant decides when to use these tools:
 
 | Area | Tool | Notes |
 | --- | --- | --- |
-| Layers | Add a layer | From a file path or URL. QGIS detects the format (vector, raster, mesh, point cloud). Every layer of a multi-layer file such as a GeoPackage is added, or one with `file.gpkg\|layername=roads`. |
+| Layers | Add a layer | From a file, a folder or a URL. QGIS detects the format (vector, raster, mesh, point cloud). For a folder, every layer the QGIS Browser shows in it is added (optionally including subfolders). Every layer of a multi-layer file such as a GeoPackage is added, or one with `file.gpkg\|layername=roads`. |
 | | List layers | Name, type, feature count and visibility. |
 | | Show a layer's columns | Column names and types, with some values of each column (or its range for numbers and dates). |
 | | Zoom to a layer | |

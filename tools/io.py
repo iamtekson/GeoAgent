@@ -33,37 +33,43 @@ _logger = get_processing_logger()
 def add_layer_to_qgis(
     path_or_url: str,
     layer_name: Optional[str] = None,
+    include_subfolders: bool = False,
 ) -> str:
     """
-    Add the layers of a file or URL to QGIS. QGIS detects the format (vector,
-    raster, mesh, point cloud); every layer of a multi-layer file such as a
-    GeoPackage is added, or just one with '|layername=<table>'.
+    Add the layers of a file, folder or URL to QGIS. QGIS detects the format
+    (vector, raster, mesh, point cloud). Every layer of a multi-layer file
+    such as a GeoPackage is added, or just one with '|layername=<table>'. For
+    a folder, every layer QGIS's Browser shows in it is added.
 
     Args:
-        path_or_url: File path or URL (e.g., '/path/to/file.shp', 'https://example.com/data.geojson')
+        path_or_url: File, folder or URL (e.g., '/path/to/file.shp', '/data/project_files',
+            'https://example.com/data.geojson')
         layer_name: Optional name for the layer (when the source holds one layer).
+        include_subfolders: For a folder, also add the layers in its subfolders.
 
     Returns:
         Success message with the added layers or error message.
 
     Examples:
         - add_layer_to_qgis('/data/cities.shp')
+        - add_layer_to_qgis('/data/shapefiles')
         - add_layer_to_qgis('https://example.com/data.geojson', 'Cities')
         - add_layer_to_qgis('/data/city.gpkg|layername=roads')
     """
     _logger.info(f"Adding layer to QGIS: {path_or_url}")
     try:
-        layers = layers_from_source(path_or_url)
+        layers = layers_from_source(path_or_url, include_subfolders)
         if not layers:
             _logger.error(f"Failed to load a layer from '{path_or_url}'")
-            return f"**Error:** Failed to load layer **{path_or_url}**. QGIS could not read it as a layer."
+            return f"**Error:** Failed to load layer **{path_or_url}**. QGIS found no layer it could read there."
 
-        if len(layers) == 1:
-            name = layer_name or os.path.splitext(os.path.basename(path_or_url.split("|")[0]))[0]
-            layers[0].setName(name)
+        if layer_name and len(layers) == 1:
+            layers[0].setName(layer_name)
 
         added = []
         for layer in layers:
+            if not layer.name():  # sources read directly (e.g. URLs) come unnamed
+                layer.setName(os.path.splitext(os.path.basename(path_or_url.split("|")[0]))[0] or path_or_url)
             QgsProject.instance().addMapLayer(layer)
             if isinstance(layer, QgsVectorLayer):
                 added.append(f"**{layer.name()}** (vector, {layer.featureCount()} features)")
@@ -72,7 +78,8 @@ def add_layer_to_qgis(
             else:
                 added.append(f"**{layer.name()}** ({type(layer).__name__})")
         _logger.info(f"Added {len(layers)} layer(s) from '{path_or_url}'")
-        return f"**Success:** Added to QGIS: {', '.join(added)}."
+        shown = ", ".join(added[:20]) + (f", and {len(added) - 20} more" if len(added) > 20 else "")
+        return f"**Success:** Added {len(added)} layer(s) to QGIS: {shown}."
 
     except Exception as e:
         _logger.error(f"Error adding layer: {str(e)}", exc_info=True)
