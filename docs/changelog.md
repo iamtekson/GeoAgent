@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The assistant knows your map view:** each request includes the map's coordinate system, scale and extent (also in longitude/latitude), so "in the current extent", "this map" or "here" work in both modes without being asked where you're looking. Processing mode uses it for extent parameters.
 - **Fixed:** QGIS froze while a layer was added from a URL (such as an OpenStreetMap download) or a large file: the download ran on QGIS's main thread. It now runs in the background, and only adding the finished layer touches QGIS's interface. Processing results are now also added to the project on the main thread, as QGIS requires.
 - **Fixed:** in long General-mode chats, Gemini rejected requests with "Please ensure that function call turn comes immediately after a user turn or after a function response turn". The shortened history sent to the model could start in the middle of an earlier request; it now always starts at one of your messages.
 - **Zoom to a place by name** ("zoom to Kathmandu, Nepal") without loading a layer, using OpenStreetMap's Nominatim search like QGIS's locator bar.

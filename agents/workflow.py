@@ -33,7 +33,11 @@ from ..prompts.system import (
 )
 from .states import WorkflowState
 from .schemas import RouteDecision, TaskDecomposition
-from .geoprocessing_flow import build_geoprocessing_subgraph, _available_layers_text
+from .geoprocessing_flow import (
+    build_geoprocessing_subgraph,
+    _available_layers_text,
+    _map_view_section,
+)
 from ..logger.processing_logger import get_processing_logger
 
 _logger = get_processing_logger()
@@ -319,7 +323,8 @@ def build_workflow_graph(llm) -> Any:
             ),
             HumanMessage(
                 content=f"Task: {operation}{outputs_ctx}\n\n"
-                f"Available layers:\n{_available_layers_text()}"
+                f"Available layers:\n{_available_layers_text()}\n\n"
+                f"{_map_view_section()}"
             ),
         ]
 

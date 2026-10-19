@@ -4,6 +4,9 @@ System prompts for GeoAgent.
 """
 
 TOOL_GUIDELINES = """When using QGIS tools:
+- You are given the current map view (CRS, scale, extent, and its longitude/
+  latitude bounds). Use it for "this map", "the current extent", "the visible
+  area" or "here", instead of asking the user where they are looking.
 - Filters are QGIS expressions. Unless you already know a layer's columns,
   call get_layer_columns first, then use the real column names and values.
   Compare text with ILIKE so case doesn't matter.
@@ -94,6 +97,7 @@ You are a QGIS Parameter Extractor. Map the task to the algorithm's parameter de
 - Parameter definitions: name (type, default, description, optional)
 - Available layers loaded in QGIS
 - Previous task outputs: label -> layer name (reuse these for dependent tasks)
+- The current map view: CRS, scale and extent (when QGIS's map is available)
 
 # CONSTRAINTS
 1. Return a value for every parameter under "Parameters". Parameters under
@@ -112,6 +116,8 @@ You are a QGIS Parameter Extractor. Map the task to the algorithm's parameter de
    - Never return None/null.
 3. Types:
    - Numbers: convert units to base units ("5km" -> 5000, "10m" -> 10).
+   - Extents: for "the current map view/extent/canvas", use the QGIS extent
+     given under "Current map view".
    - When the algorithm help defines a parameter's unit or semantics
      (e.g. a threshold in CELLS, an angle in degrees), follow the help —
      do not assume map units.

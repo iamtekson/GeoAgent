@@ -25,6 +25,8 @@ A conversational loop (`build_graph_app` in `agents/graph.py`): the LLM answers 
 
 The selection tools (`tools/filters.py`) are thin wrappers around QGIS's own algorithms: `qgis:selectbyexpression`, `native:selectbylocation` and `native:selectwithindistance`. The LLM writes the condition as a QGIS expression; deciding which column the user meant, and whether to ask, is left to the LLM (system prompt). The tools pass parameters through the same `normalize_parameters` and `validate_parameters` as processing mode. As a result, an option like "within" maps to QGIS's own label, and an unknown column or option comes back as an error listing the valid ones.
 
+Every LLM call also gets the current map view (CRS, scale, extent in map units and in WGS 84; `utils/map_view.py`), added to the system message for that call only (`_with_map_view`). It isn't stored in the conversation, so it's always current, including after a zoom earlier in the same request. In Processing mode, the parameter-filling prompt and tool-using tasks include it the same way.
+
 ## Processing mode
 
 ![(A) General mode loop; (B) Processing mode workflow](../imgs/graph_architecture.png)

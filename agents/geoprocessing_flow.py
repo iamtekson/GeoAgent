@@ -34,6 +34,7 @@ from ..tools.geoprocessing import (
     validate_parameters,
 )
 from ..utils.layer_columns import describe_columns
+from ..utils.map_view import describe_map_view
 from ..prompts.system import (
     ALGORITHM_SELECTION_PROMPT,
     PARAMETER_GATHERING_PROMPT,
@@ -88,6 +89,12 @@ def _layer_columns_text(max_layers: int = 12) -> str:
     except Exception as e:
         _logger.warning(f"Could not list layer columns: {e}")
         return "No column information available."
+
+
+def _map_view_section() -> str:
+    """The current map view as a prompt section ('' when there is no map)."""
+    view = describe_map_view()
+    return f"{view}\n\n" if view else ""
 
 
 def _previous_outputs_text(state: GeoTaskState) -> str:
@@ -346,6 +353,7 @@ def build_geoprocessing_subgraph(llm) -> Any:
                     f"Algorithm: {metadata.get('name', '')} ({metadata.get('id', '')})\n"
                     f"{help_section}\n"
                     f"Available layers:\n{_available_layers_text()}\n\n"
+                    f"{_map_view_section()}"
                     f"{columns_section}"
                     f"Previous task outputs (label: layer name):\n"
                     f"{_previous_outputs_text(state)}\n"

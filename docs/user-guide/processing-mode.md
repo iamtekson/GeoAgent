@@ -40,6 +40,7 @@ Processing algorithms ignore selections. If a request selects features in one st
 
 ## Writing good requests
 
+- **"The current extent" works:** the model knows the map view, so an extent parameter or a clip to the visible area uses it.
 - **Name your layers and give units:** "buffer **cities** by **500 m**", not "make a buffer".
 - **Refer to earlier steps naturally:** "...and clip the roads with **that buffer**".
 - **Use file paths** for data that isn't loaded yet; they work as inputs directly.

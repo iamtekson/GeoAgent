@@ -35,6 +35,10 @@ The assistant decides when to use these tools:
 
 Layer names don't have to be exact: "stream network of nepal" finds a layer named `stream_network_nepal`.
 
+## The map view
+
+The assistant always knows what your map shows: its coordinate system, scale and extent, in map units and in longitude/latitude. So "the current extent", "this map" or "here" work without telling it where you are looking. This is read fresh for every step, so it stays right after a zoom. It's sent to the model provider like the rest of the request, but isn't saved in the chat.
+
 ## How filtering works
 
 The assistant turns your request into a QGIS expression, and QGIS's own tools run it. "Select people with kshetri in their name" becomes `"name" ILIKE '%kshetri%'`, which also matches `Kshetri` and `KSHETRI`.

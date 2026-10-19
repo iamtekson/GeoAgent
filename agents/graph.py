@@ -18,6 +18,7 @@ from langchain_core.messages import (
 )
 
 from ..tools import TOOLS
+from ..utils.map_view import describe_map_view
 from .states import AgentState
 from .workflow import build_workflow_graph
 
@@ -48,6 +49,21 @@ def _trim_context(messages: Sequence[BaseMessage]) -> List[BaseMessage]:
     return system + rest[start:]
 
 
+def _with_map_view(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """Add the current map view to the system message of this call only.
+
+    It isn't stored in the chat, so it's always the view at the time of the
+    call (also after a zoom earlier in the same request).
+    """
+    view = describe_map_view()
+    if not view:
+        return messages
+    first = messages[0] if messages else None
+    if isinstance(first, SystemMessage) and isinstance(first.content, str):
+        return [SystemMessage(content=f"{first.content}\n\n{view}")] + list(messages[1:])
+    return [SystemMessage(content=view)] + list(messages)
+
+
 def build_graph_app(llm) -> Any:
     """Build and compile the general-mode graph: LLM ⇄ tools until done."""
 
@@ -57,7 +73,7 @@ def build_graph_app(llm) -> Any:
         bound_llm = llm
 
     def llm_node(state: AgentState) -> AgentState:
-        response = bound_llm.invoke(_trim_context(state["messages"]))
+        response = bound_llm.invoke(_with_map_view(_trim_context(state["messages"])))
         return {"messages": [response]}
 
     def tool_node(state: AgentState) -> AgentState:

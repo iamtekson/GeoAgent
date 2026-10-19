@@ -29,7 +29,7 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 A passing run ends with:
 
 ```
-Ran 131 tests in 13.1s
+Ran 136 tests in 12.2s
 
 OK
 ```
@@ -107,6 +107,14 @@ cd tests
 | --- | --- |
 | `TrimContextTest` (3 tests) | short chats are sent whole; a trimmed window starts at a user message; a request longer than the window is kept whole |
 | `GeneralModeHistoryTest.test_every_llm_call_opens_with_a_user_message` | replays a three-request chat that passes the 20-message window mid-request: every LLM call still opens with a user message (Gemini rejected the old window) |
+
+### `test_map_view.py`: the map view given to the model (`utils/map_view.py`)
+
+| Test | Checks that |
+| --- | --- |
+| `DescribeMapViewTest` (3 tests) | a projected view gives its CRS, scale, QGIS extent string and longitude/latitude bounds; a geographic view keeps degree precision; without a map there's nothing |
+| `ModelSeesTheMapViewTest.test_general_mode_sends_it_with_each_call_without_storing_it` | General mode adds the view to the system message of each LLM call, and the saved chat stays unchanged |
+| `…test_processing_prompts_include_it` | the parameter-filling prompt and tool-using tasks in Processing mode get the view |
 
 ### `test_io.py`: adding layers and zooming (`tools/io.py`, `utils/layer_loading.py`)
 
